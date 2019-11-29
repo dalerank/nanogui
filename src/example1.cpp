@@ -47,6 +47,7 @@
 #include <nanogui/common.h>
 #include <nanogui/listbox.h>
 #include <nanogui/themebuilder.h>
+#include <nanogui/tolerancebar.h>
 #include <nanogui/treeview.h>
 #include <nanogui/treeviewitem.h>
 #include <iostream>
@@ -367,7 +368,7 @@ void createBasicWidgets(Screen* parent)
   dialTextBox.setAlignment(TextBox::Alignment::Right);
 }
 
-void createMiscWidgets(Screen* screen)
+/*void createMiscWidgets(Screen* screen)
 {
   auto& mw = screen->window(Caption{ "Misc. widgets" },
     Position{ 425, 15 });
@@ -447,238 +448,238 @@ void createMiscWidgets(Screen* screen)
       tabWidget.ensureTabVisible(value);
     }
   });
-}
+}*/
 
-void createGridSmallObjects(Screen* screen)
-{
-  auto& w = screen->window("Grid of small widgets");
-  w.setPosition(425, 300);
-  auto layoutw = new GridLayout(Orientation::Horizontal, 2, Alignment::Middle, 15, 5);
-  layoutw->setColAlignment({ Alignment::Maximum, Alignment::Fill });
-  layoutw->setSpacing(0, 10);
-  w.setLayout(layoutw);
-
-
-  /* FP widget */
-  w.label("Floating point :", "sans-bold");
-  auto& textBox = w.textbox();
-  textBox.setEditable(true);
-  textBox.setFixedSize(Vector2i(100, 20));
-  textBox.setValue("50");
-  textBox.setUnits("GiB");
-  textBox.setDefaultValue("0.0");
-  textBox.setFontSize(16);
-  textBox.setFormat("[-]?[0-9]*\\.?[0-9]+");
-
-  /* Positive integer widget */
-  w.label("Positive integer :", "sans-bold");
-  auto& intBox = w.intbox<int>();
-  intBox.setEditable(true);
-  intBox.setFixedSize(Vector2i(100, 20));
-  intBox.setValue(50);
-  intBox.setUnits("Mhz");
-  intBox.setDefaultValue("0");
-  intBox.setFontSize(16);
-  intBox.setFormat("[1-9][0-9]*");
-  intBox.setSpinnable(true);
-  intBox.setMinValue(1);
-  intBox.setValueIncrement(2);
-
-  /* Checkbox widget */
-  w.label("Checkbox :", "sans-bold");
-  auto& cb = w.checkbox("Check me");
-  cb.setFontSize(16);
-  cb.setChecked(true);
-
-  w.label("Combo box :", "sans-bold");
-  auto& cobo = w.combobox(ComboBoxItems{ "Item 1", "Item 2", "Item 3" });
-  cobo.setFontSize(16);
-  cobo.setFixedSize(Vector2i(100, 20));
-
-  w.label("Color picker :", "sans-bold");
-  auto& cp = w.wdg<ColorPicker>(Color{ 255, 120, 0, 255 });
-  cp.setFixedSize({ 100, 20 });
-  cp.setFinalCallback([](const Color &c) {
-    std::cout << "ColorPicker Final Callback: ["
-      << c.r() << ", "
-      << c.g() << ", "
-      << c.b() << ", "
-      << c.w() << "]" << std::endl;
-  });
-
-  auto& cpw = screen->window("Color Picker Fast Callback");
-  auto* layout = new GridLayout(Orientation::Horizontal, 2, Alignment::Middle, 15, 5);
-  layout->setColAlignment({ Alignment::Maximum, Alignment::Fill });
-  layout->setSpacing(0, 10);
-  cpw.setLayout(layout);
-  cpw.setPosition(425, 500);
-
-  cpw.label("Combined: ");
-  auto& btn = cpw.button(Caption{ "ColorWheel" }, Icon{ ENTYPO_ICON_500PX });
-  cpw.label("Red: ");
-  auto& re = cpw.intbox<int>(IsEditable{ false });
-  cpw.label("Green: ");
-  auto& ge = cpw.intbox<int>(IsEditable{ false });
-  cpw.label("Blue: ");
-  auto& be = cpw.intbox<int>(IsEditable{ false });
-  cpw.label("Alpha: ");
-  auto& ae = cpw.intbox<int>(IsEditable{ false });
-
-  cp.setCallback([&](const Color &c) {
-    btn.setBackgroundColor(c);
-    btn.setTextColor(c.contrastingColor());
-    re.setValue((int)(c.r() * 255.0f));
-    ge.setValue((int)(c.g() * 255.0f));
-    be.setValue((int)(c.b() * 255.0f));
-    ae.setValue((int)(c.w() * 255.0f));
-  });
-}
-
-void createMeter(Screen* screen)
-{
-  auto& meter = screen->wdg<Meter>();
-  meter.setFixedSize({ 160, 160 });
-  meter.setPosition(screen->width() - 165, screen->height() - 165);
-  meter.setId("#meter");
-}
-
-void toggleMainMenu(Screen* screen, bool show)
-{
-  using namespace nanogui;
-
-  auto menus = screen->findAll<WindowMenu>();
-
-  if (menus.empty())
-  {
-    auto& mmenu = screen->wdg<WindowMenu>();
-    mmenu.activate({ 0, 0 });
-    mmenu.submenu("File")
-      .item("New", [=]() { screen->msgdialog(MessageDialog::Type::Information, "New", "New Clicked!"); })
-      .item("Open", [=]() { screen->msgdialog(MessageDialog::Type::Information, "Open", "New Clicked!"); })
-      .item("Save", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "Save", "New Clicked!"); });
-    mmenu.submenu("Edit")
-      .item("Undo", "Ctrl+Z", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
-      .item("Redo", "Ctrl+Y", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
-      .item("Cut", "Ctrl+X", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
-      .item("Copy", "Ctrl+C", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
-      .item("Paste", "Ctrl+V", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); });
-
-    screen->performLayout();
-  }
-  else
-  {
-    menus.front()->setVisible(show);
-  }
-}
-
-void toggleConsoleWnd(Screen* screen, bool show)
-{
-  using namespace nanogui;
-
-  auto console = screen->findWidgetGlobal("#console_wnd");
-  if (!console)
-  {
-    auto& wnd = screen->window("Example: Console");
-    wnd.setPosition(60, 60);
-    wnd.withLayout<GroupLayout>();
-    wnd.setFixedSize({ 300, 300 });
-    wnd.setId("#console_wnd");
-    screen->performLayout();
-  }
-  else
-  {
-    console->setVisible(show);
-  }
-}
-
-void toggleLogWnd(Screen* screen, bool show)
-{
-  using namespace nanogui;
-
-  auto logwnd = screen->findWidgetGlobal("#log_wnd");
-  if (!logwnd)
-  {
-    auto& wnd = screen->window("Example: Log");
-    wnd.setPosition(120, 120);
-    wnd.setFixedSize({ 400, 300 });
-    wnd.setId("#log_wnd");
-    screen->performLayout();
-  }
-  else
-  {
-    logwnd->setVisible(show);
-  }
-}
-
-void toggleSimpleLayoutWnd(Screen* screen, bool show)
-{
-  using namespace nanogui;
-
-  auto logwnd = screen->findWidgetGlobal("#simple_layout_wnd");
-  if (!logwnd)
-  {
-    auto& wnd = screen->window(Caption{ "Example: Simple layout" },
-                               WidgetStretchLayout{ Orientation::Horizontal },
-                               Position{ 180, 180 },
-                               MinimumSize{ 400, 400 },
-                               WidgetId{ "#simple_layout_wnd" });
-
-    wnd.listbox(RelativeSize{ 0.33, 0 },
-                ListboxCallback{ [screen](ListboxItem* i) {
-                  if (Label* lb = screen->findWidget<Label>("#simple_layout_lb"))
-                    lb->setCaption("MyObject: " + i->caption());
-                }},
-                ListboxContent{ [](Listbox& l) {
-                  for (int i = 0; i < 100; i++)
-                    l.addItem("Item " + std::to_string(i));
-                }});
-    auto& desc = wnd.widget(WidgetStretchLayout{ Orientation::Vertical });
-    desc.label(Caption{ "MyObject: id" },
-               CaptionHAlign{ TextHAlign::hLeft },
-               FixedHeight{ 15 },
-               WidgetId{ "#simple_layout_lb" });
-    desc.tabs(TabNames{ "Description", "Details" });
-    screen->performLayout();
-  }
-  else
-  {
-    logwnd->setVisible(show);
-  }
-}
-
-void toggleTreeView(Screen* screen, bool show)
-{
-  using namespace nanogui;
-
-  auto treeview = screen->findWidgetGlobal("#tree_view_wnd");
-  if (!treeview)
-  {
-    auto& wnd = screen->window(Caption{ "Example: Tree view" },
-                               WidgetStretchLayout{ Orientation::Horizontal },
-                               Position{ 180, 180 },
-                               MinimumSize{ 400, 400 },
-                               WidgetId{ "#tree_view_wnd" });
-
-    auto& view = wnd.treeview(RelativeSize{ 0.5, 0 });
-    auto n1 = view.rootNode()->addNode("Node1");
-    auto n1_c1 = n1->addNode("Node1_C1");
-    n1_c1->addNode("NodeC1_c1");
-    auto n2 = view.rootNode()->addNode("Node2");
-    n2->addNode("Some text here");
-    view.rootNode()->addNode("Node3");
-    view.rootNode()->addNode("Node4");
-    auto n5 = view.rootNode()->addNode("Node5");
-    n5->addNode("Node5_C1")
-        ->addNode("yet one node")
-          ->addNode("yet second node")
-            ->addNode("and third node")
-              ->addNode("anybody show me?");
-  }
-  else
-  {
-    treeview->setVisible(show);
-  }
-}
+//void createGridSmallObjects(Screen* screen)
+//{
+//  auto& w = screen->window("Grid of small widgets");
+//  w.setPosition(425, 300);
+//  auto layoutw = new GridLayout(Orientation::Horizontal, 2, Alignment::Middle, 15, 5);
+//  layoutw->setColAlignment({ Alignment::Maximum, Alignment::Fill });
+//  layoutw->setSpacing(0, 10);
+//  w.setLayout(layoutw);
+//
+//
+//  /* FP widget */
+//  w.label("Floating point :", "sans-bold");
+//  auto& textBox = w.textbox();
+//  textBox.setEditable(true);
+//  textBox.setFixedSize(Vector2i(100, 20));
+//  textBox.setValue("50");
+//  textBox.setUnits("GiB");
+//  textBox.setDefaultValue("0.0");
+//  textBox.setFontSize(16);
+//  textBox.setFormat("[-]?[0-9]*\\.?[0-9]+");
+//
+//  /* Positive integer widget */
+//  w.label("Positive integer :", "sans-bold");
+//  auto& intBox = w.intbox<int>();
+//  intBox.setEditable(true);
+//  intBox.setFixedSize(Vector2i(100, 20));
+//  intBox.setValue(50);
+//  intBox.setUnits("Mhz");
+//  intBox.setDefaultValue("0");
+//  intBox.setFontSize(16);
+//  intBox.setFormat("[1-9][0-9]*");
+//  intBox.setSpinnable(true);
+//  intBox.setMinValue(1);
+//  intBox.setValueIncrement(2);
+//
+//  /* Checkbox widget */
+//  w.label("Checkbox :", "sans-bold");
+//  auto& cb = w.checkbox("Check me");
+//  cb.setFontSize(16);
+//  cb.setChecked(true);
+//
+//  w.label("Combo box :", "sans-bold");
+//  auto& cobo = w.combobox(ComboBoxItems{ "Item 1", "Item 2", "Item 3" });
+//  cobo.setFontSize(16);
+//  cobo.setFixedSize(Vector2i(100, 20));
+//
+//  w.label("Color picker :", "sans-bold");
+//  auto& cp = w.wdg<ColorPicker>(Color{ 255, 120, 0, 255 });
+//  cp.setFixedSize({ 100, 20 });
+//  cp.setFinalCallback([](const Color &c) {
+//    std::cout << "ColorPicker Final Callback: ["
+//      << c.r() << ", "
+//      << c.g() << ", "
+//      << c.b() << ", "
+//      << c.w() << "]" << std::endl;
+//  });
+//
+//  auto& cpw = screen->window("Color Picker Fast Callback");
+//  auto* layout = new GridLayout(Orientation::Horizontal, 2, Alignment::Middle, 15, 5);
+//  layout->setColAlignment({ Alignment::Maximum, Alignment::Fill });
+//  layout->setSpacing(0, 10);
+//  cpw.setLayout(layout);
+//  cpw.setPosition(425, 500);
+//
+//  cpw.label("Combined: ");
+//  auto& btn = cpw.button(Caption{ "ColorWheel" }, Icon{ ENTYPO_ICON_500PX });
+//  cpw.label("Red: ");
+//  auto& re = cpw.intbox<int>(IsEditable{ false });
+//  cpw.label("Green: ");
+//  auto& ge = cpw.intbox<int>(IsEditable{ false });
+//  cpw.label("Blue: ");
+//  auto& be = cpw.intbox<int>(IsEditable{ false });
+//  cpw.label("Alpha: ");
+//  auto& ae = cpw.intbox<int>(IsEditable{ false });
+//
+//  cp.setCallback([&](const Color &c) {
+//    btn.setBackgroundColor(c);
+//    btn.setTextColor(c.contrastingColor());
+//    re.setValue((int)(c.r() * 255.0f));
+//    ge.setValue((int)(c.g() * 255.0f));
+//    be.setValue((int)(c.b() * 255.0f));
+//    ae.setValue((int)(c.w() * 255.0f));
+//  });
+//}
+//
+//void createMeter(Screen* screen)
+//{
+//  auto& meter = screen->wdg<Meter>();
+//  meter.setFixedSize({ 160, 160 });
+//  meter.setPosition(screen->width() - 165, screen->height() - 165);
+//  meter.setId("#meter");
+//}
+//
+//void toggleMainMenu(Screen* screen, bool show)
+//{
+//  using namespace nanogui;
+//
+//  auto menus = screen->findAll<WindowMenu>();
+//
+//  if (menus.empty())
+//  {
+//    auto& mmenu = screen->wdg<WindowMenu>();
+//    mmenu.activate({ 0, 0 });
+//    mmenu.submenu("File")
+//      .item("New", [=]() { screen->msgdialog(MessageDialog::Type::Information, "New", "New Clicked!"); })
+//      .item("Open", [=]() { screen->msgdialog(MessageDialog::Type::Information, "Open", "New Clicked!"); })
+//      .item("Save", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "Save", "New Clicked!"); });
+//    mmenu.submenu("Edit")
+//      .item("Undo", "Ctrl+Z", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
+//      .item("Redo", "Ctrl+Y", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
+//      .item("Cut", "Ctrl+X", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
+//      .item("Copy", "Ctrl+C", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); })
+//      .item("Paste", "Ctrl+V", [=]() { screen->msgdialog(nanogui::MessageDialog::Type::Information, "New", "New Clicked!"); });
+//
+//    screen->performLayout();
+//  }
+//  else
+//  {
+//    menus.front()->setVisible(show);
+//  }
+//}
+//
+//void toggleConsoleWnd(Screen* screen, bool show)
+//{
+//  using namespace nanogui;
+//
+//  auto console = screen->findWidgetGlobal("#console_wnd");
+//  if (!console)
+//  {
+//    auto& wnd = screen->window("Example: Console");
+//    wnd.setPosition(60, 60);
+//    wnd.withLayout<GroupLayout>();
+//    wnd.setFixedSize({ 300, 300 });
+//    wnd.setId("#console_wnd");
+//    screen->performLayout();
+//  }
+//  else
+//  {
+//    console->setVisible(show);
+//  }
+//}
+//
+//void toggleLogWnd(Screen* screen, bool show)
+//{
+//  using namespace nanogui;
+//
+//  auto logwnd = screen->findWidgetGlobal("#log_wnd");
+//  if (!logwnd)
+//  {
+//    auto& wnd = screen->window("Example: Log");
+//    wnd.setPosition(120, 120);
+//    wnd.setFixedSize({ 400, 300 });
+//    wnd.setId("#log_wnd");
+//    screen->performLayout();
+//  }
+//  else
+//  {
+//    logwnd->setVisible(show);
+//  }
+//}
+//
+//void toggleSimpleLayoutWnd(Screen* screen, bool show)
+//{
+//  using namespace nanogui;
+//
+//  auto logwnd = screen->findWidgetGlobal("#simple_layout_wnd");
+//  if (!logwnd)
+//  {
+//    auto& wnd = screen->window(Caption{ "Example: Simple layout" },
+//                               WidgetStretchLayout{ Orientation::Horizontal },
+//                               Position{ 180, 180 },
+//                               MinimumSize{ 400, 400 },
+//                               WidgetId{ "#simple_layout_wnd" });
+//
+//    wnd.listbox(RelativeSize{ 0.33, 0 },
+//                ListboxCallback{ [screen](ListboxItem* i) {
+//                  if (Label* lb = screen->findWidget<Label>("#simple_layout_lb"))
+//                    lb->setCaption("MyObject: " + i->caption());
+//                }},
+//                ListboxContent{ [](Listbox& l) {
+//                  for (int i = 0; i < 100; i++)
+//                    l.addItem("Item " + std::to_string(i));
+//                }});
+//    auto& desc = wnd.widget(WidgetStretchLayout{ Orientation::Vertical });
+//    desc.label(Caption{ "MyObject: id" },
+//               CaptionHAlign{ TextHAlign::hLeft },
+//               FixedHeight{ 15 },
+//               WidgetId{ "#simple_layout_lb" });
+//    desc.tabs(TabNames{ "Description", "Details" });
+//    screen->performLayout();
+//  }
+//  else
+//  {
+//    logwnd->setVisible(show);
+//  }
+//}
+//
+//void toggleTreeView(Screen* screen, bool show)
+//{
+//  using namespace nanogui;
+//
+//  auto treeview = screen->findWidgetGlobal("#tree_view_wnd");
+//  if (!treeview)
+//  {
+//    auto& wnd = screen->window(Caption{ "Example: Tree view" },
+//                               WidgetStretchLayout{ Orientation::Horizontal },
+//                               Position{ 180, 180 },
+//                               MinimumSize{ 400, 400 },
+//                               WidgetId{ "#tree_view_wnd" });
+//
+//    auto& view = wnd.treeview(RelativeSize{ 0.5, 0 });
+//    auto n1 = view.rootNode()->addNode("Node1");
+//    auto n1_c1 = n1->addNode("Node1_C1");
+//    n1_c1->addNode("NodeC1_c1");
+//    auto n2 = view.rootNode()->addNode("Node2");
+//    n2->addNode("Some text here");
+//    view.rootNode()->addNode("Node3");
+//    view.rootNode()->addNode("Node4");
+//    auto n5 = view.rootNode()->addNode("Node5");
+//    n5->addNode("Node5_C1")
+//        ->addNode("yet one node")
+//          ->addNode("yet second node")
+//            ->addNode("and third node")
+//              ->addNode("anybody show me?");
+//  }
+//  else
+//  {
+//    treeview->setVisible(show);
+//  }
+//}
 
 void createAllWidgetsDemo(Screen* screen)
 {
@@ -695,40 +696,40 @@ void createAllWidgetsDemo(Screen* screen)
   dw.submenu("File").item("(dummy item)").setEnabled(false);
   dw.submenu("File").item("Save").setShortcut("Ctrl+S");
 
-  dw.submenu("Examples")
-    .item("Global menu", [screen](bool v) { toggleMainMenu(screen, v); })
-    .item("Console", [screen](bool v) { toggleConsoleWnd(screen, v); },
-                     [screen](bool &enabled, bool &checked) {
-                       enabled = true;
-                       auto* w = screen->findWidgetGlobal("#console_wnd");
-                       checked = (w && w->visible());
-                     })
-    .item("Log", [screen](bool v) { toggleLogWnd(screen, v); },
-                 [screen](bool &enabled, bool &checked) {
-                   enabled = true;
-                   auto* w = screen->findWidgetGlobal("#log_wnd");
-                   checked = (w && w->visible());
-                 })
-    .item("Simple layout", [screen](bool v) { toggleSimpleLayoutWnd(screen, v); },
-                           [screen](bool &enabled, bool &checked) {
-                             enabled = true;
-                             auto* w = screen->findWidgetGlobal("#simple_layout_wnd");
-                             checked = (w && w->visible());
-                           })
-    .item("Tree view", [screen](bool v) { toggleTreeView(screen, v); },
-                       [screen](bool &enabled, bool &checked) {
-                         enabled = true;
-                         auto* w = screen->findWidgetGlobal("#tree_view_wnd");
-                         checked = (w && w->visible());
-                       });
-  dw.submenu("Help");
+//  dw.submenu("Examples")
+//    .item("Global menu", [screen](bool v) { toggleMainMenu(screen, v); })
+//    .item("Console", [screen](bool v) { toggleConsoleWnd(screen, v); },
+//                     [screen](bool &enabled, bool &checked) {
+//                       enabled = true;
+//                       auto* w = screen->findWidgetGlobal("#console_wnd");
+//                       checked = (w && w->visible());
+//                     })
+//    .item("Log", [screen](bool v) { toggleLogWnd(screen, v); },
+//                 [screen](bool &enabled, bool &checked) {
+//                   enabled = true;
+//                   auto* w = screen->findWidgetGlobal("#log_wnd");
+//                   checked = (w && w->visible());
+//                 })
+//    .item("Simple layout", [screen](bool v) { toggleSimpleLayoutWnd(screen, v); },
+//                           [screen](bool &enabled, bool &checked) {
+//                             enabled = true;
+//                             auto* w = screen->findWidgetGlobal("#simple_layout_wnd");
+//                             checked = (w && w->visible());
+//                           })
+//    .item("Tree view", [screen](bool v) { toggleTreeView(screen, v); },
+//                       [screen](bool &enabled, bool &checked) {
+//                         enabled = true;
+//                         auto* w = screen->findWidgetGlobal("#tree_view_wnd");
+//                         checked = (w && w->visible());
+//                       });
+//  dw.submenu("Help");
 }
 
 void makeCustomThemeWindow(Screen* screen, const std::string &title)
 {
   auto& cwindow = screen->window(title);
   cwindow.setPosition(1100, 300);
-  cwindow.withTheme<WhiteTheme>(screen->nvgContext());
+//  cwindow.withTheme<WhiteTheme>(screen->nvgContext());
   cwindow.withLayout<GroupLayout>(15, 6, 6);
 
   /* test text box fonts */
@@ -738,8 +739,13 @@ void makeCustomThemeWindow(Screen* screen, const std::string &title)
     wrapper.withLayout<GridLayout>(ColumnsAligment{ Alignment::Maximum, Alignment::Fill });
     wrapper.label("TextBox : ");
     wrapper.textbox(TextValue{ "Some Text" }, IsEditable{ true });
+
     wrapper.label("IntBox : ");
     wrapper.intbox<int>(IsSpinnable{ true });
+
+    wrapper.label("Volume : ");
+    wrapper.tolerancebar().setFixedSize(Vector2i(120, 30));
+
     wrapper.label("FloatBox : ");
     wrapper.floatbox<float>(IsSpinnable{ true });
   }
@@ -903,15 +909,15 @@ public:
   ExampleApplication() : nanogui::Screen({ 1600, 900 }, "NanoGUI Test") {
       initGPUTimer(&gpuTimer);
 
-      createButtonDemoWindow(this);
-      createBasicWidgets(this);
-      createMiscWidgets(this);
-      createGridSmallObjects(this);
-      createMeter(this);
-      createAllWidgetsDemo(this);
+//      createButtonDemoWindow(this);
+//      createBasicWidgets(this);
+//      createMiscWidgets(this);
+//      createGridSmallObjects(this);
+//      createMeter(this);
+//      createAllWidgetsDemo(this);
       createThemeBuilderWindow(this);
       makeCustomThemeWindow(this, "Custom theme");
-      toggleTreeView(this, true);
+//      toggleTreeView(this, true);
 
       fpsGraph = &wdg<PerfGraph>(GRAPH_RENDER_FPS, "Frame Time", Vector2i(5, height() - 40));
       cpuGraph = &wdg<PerfGraph>(GRAPH_RENDER_MS, "CPU Time", Vector2i(5, height() - 40 * 2));
