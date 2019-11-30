@@ -197,6 +197,9 @@ public:
      */
     Color mButtonGradientBotPushed;
 
+    Color mToggleButtonActiveColor;
+    Color mToggleButtonInactiveColor;
+
     /* Window colors */
     /**
      * The fill color for a Window that is not in focus

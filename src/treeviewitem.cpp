@@ -5,19 +5,22 @@
 NAMESPACE_BEGIN(nanogui)
 
 TreeViewItem::TreeViewItem( Widget* parent )
-  : Label(parent, "")
+  : Label(parent, ""), mNodeId(BadNodeId)
 {
-  init_();
+  _init();
   if (auto p = dynamic_cast<TreeView*>(parent))
     mOwner = p;
+
+  mPreviewArea = &hlayer(WidgetStretchLayout{ Orientation::ReverseHorizontal });
+  mPreviewArea->setRelativeSize({ 1, 1 });
 }
 
-void TreeViewItem::init_()
+void TreeViewItem::_init()
 {
-  itemParent_ = 0;
+  mParentId = BadNodeId;
   mImageIndex = -1;
   SelectedImageIndex = -1;
-  Data = 0;
+  mData = 0;
   mExpanded = false;
   mFontColor = Color();
 
@@ -26,39 +29,31 @@ void TreeViewItem::init_()
 
 TreeViewItem::~TreeViewItem()
 {
-  if (mOwner && this == mOwner->selectedNode() )
-  {
-    setSelected( false );
-  }
-
-  clearNodes();
+  if (mOwner && mNodeId == mOwner->selectedNode() )
+    setSelected(false);
 }
 
-int TreeViewItem::nodesCount() const { return mNodeChildren.size(); }
-bool TreeViewItem::hasNodes() const { return !mNodeChildren.empty(); }
+int TreeViewItem::nodesCount() const { return mChildrenIds.size(); }
+bool TreeViewItem::hasNodes() const { return !mChildrenIds.empty(); }
 TreeView* TreeViewItem::source() const { return mOwner; }
 void TreeViewItem::setIcon( int icon ) { mIcon = icon; }
-void TreeViewItem::clearNodes()
-{
-  mNodeChildren.clear();
-}
 
 TreeViewItem* TreeViewItem::addNodeBack(
   const std::string&    text,
   int    icon,
   int    imageIndex,
   int    selectedImageIndex,
-  void*  data)
+  intptr_t  data)
 {
-  auto&  node = source()->wdg<TreeViewItem>();
+  auto& node = source()->addNode();
 
-  mNodeChildren.push_back( &node );
+  mChildrenIds.push_back( node.getNodeId() );
   node.setCaption( text );
   node.mIcon = icon;
   node.mImageIndex = imageIndex;
-  node.itemParent_ = this;
+  node.mParentId = mNodeId;
   node.SelectedImageIndex = selectedImageIndex;
-  node.Data = data;
+  node.mData = data;
 
   return &node;
 }
@@ -68,17 +63,17 @@ TreeViewItem* TreeViewItem::addNodeFront(
   int    icon /*= 0*/,
   int          imageIndex /*= -1*/,
   int          selectedImageIndex /*= -1*/,
-  void*          data /*= 0*/)
+  intptr_t          data /*= 0*/)
 {
-  auto& node = source()->wdg<TreeViewItem>();
+  auto& node = source()->addNode();
 
-  mNodeChildren.push_front( &node );
+  mChildrenIds.push_front( node.getNodeId() );
   node.setCaption( text );
   node.mIcon = icon;
   node.mImageIndex = imageIndex;
-  node.itemParent_ = this;
+  node.mParentId = mNodeId;
   node.SelectedImageIndex = selectedImageIndex;
-  node.Data = data;
+  node.mData = data;
 
   return &node;
 }
@@ -89,25 +84,58 @@ TreeViewItem* TreeViewItem::insertNodeAfter(
   int    icon /*= 0*/,
   int          imageIndex /*= -1*/,
   int          selectedImageIndex /*= -1*/,
-  void*          data /*= 0*/)
+  intptr_t          data /*= 0*/)
 {
-  for (auto it = mNodeChildren.begin(); it != mNodeChildren.end(); it++ )
+  NodeId insertId = other->getNodeId();
+  for (auto it = mChildrenIds.begin(); it != mChildrenIds.end(); it++ )
   {
-    if ( other == *it )
+    if (insertId == *it)
     {
-      auto& node = source()->wdg<TreeViewItem>();
+      auto& node = source()->addNode();
       node.setCaption( text );
       node.mIcon = icon;
       node.mImageIndex = imageIndex;
       node.SelectedImageIndex = selectedImageIndex;
-      node.Data = data;
-      node.itemParent_ = this;
-      mNodeChildren.insert( it, &node );
+      node.mData = data;
+      node.mParentId = mNodeId;
+      mChildrenIds.insert( it, node.getNodeId() );
       return &node;
     }
   }
 
   return nullptr;
+}
+
+bool TreeViewItem::isAliveId(NodeId id)
+{
+  for (auto& it : mChildrenIds)
+    if (it == id) return true;
+  return false;
+}
+
+void TreeViewItem::removeChild(const Widget *widget)
+{
+  removeNode(widget);
+  Label::removeChild(widget);
+}
+
+void TreeViewItem::removeAllNodes()
+{
+  mChildrenIds.clear();
+  source()->recheckChildren();
+}
+
+void TreeViewItem::removeNode(const Widget* node)
+{
+  if (const TreeViewItem* twi = node->cast<const TreeViewItem>())
+  {
+    auto it = std::find(mChildrenIds.begin(), mChildrenIds.end(), twi->getNodeId());
+    if (it != mChildrenIds.end())
+    {
+      source()->recheckChildren();
+      mChildrenIds.erase(it);
+    }
+  }
 }
 
 TreeViewItem* TreeViewItem::insertNodeBefore(
@@ -116,20 +144,20 @@ TreeViewItem* TreeViewItem::insertNodeBefore(
   int    icon /*= 0*/,
   int    imageIndex /*= -1*/,
   int    selectedImageIndex /*= -1*/,
-  void*  data /*= 0*/)
+  intptr_t  data /*= 0*/)
 {
-  for (auto it = mNodeChildren.begin(); it != mNodeChildren.end(); it++ )
+  for (auto it = mChildrenIds.begin(); it != mChildrenIds.end(); it++ )
   {
-    if ( other == *it )
+    if ( other->getNodeId() == *it )
     {
-      auto& node = source()->wdg<TreeViewItem>();
+      auto& node = source()->addNode();
       node.setCaption( text );
       node.mIcon = icon;
       node.mImageIndex = imageIndex;
       node.SelectedImageIndex = selectedImageIndex;
-      node.Data = data;
-      node.itemParent_ = this;
-      mNodeChildren.insert( it, &node );
+      node.mData = data;
+      node.mParentId = mNodeId;
+      mChildrenIds.insert( it, node.getNodeId() );
       return &node;
     }
   }
@@ -138,57 +166,60 @@ TreeViewItem* TreeViewItem::insertNodeBefore(
 
 TreeViewItem* TreeViewItem::front() const
 {
-  return mNodeChildren.empty()
+  return mChildrenIds.empty()
           ? nullptr
-          : mNodeChildren.front();
+          : source()->findNode(mChildrenIds.front());
 }
 
 TreeViewItem* TreeViewItem::back() const
 {
-  return mNodeChildren.empty()
+  return mChildrenIds.empty()
     ? nullptr
-    : mNodeChildren.back();
+    : source()->findNode(mChildrenIds.back());
 }
 
 TreeViewItem* TreeViewItem::prevSibling() const
 {
-  TvIterator  itThis;
-  TvIterator  itOther;
-  TreeViewItem*                  other = 0;
+  TreeViewItem::NodeId                  result = BadNodeId;
 
-  if ( itemParent_ )
+  NodeList::iterator self, other;
+  if ( mParentId != BadNodeId )
   {
-    for ( itThis = itemParent_->mNodeChildren.begin(); itThis != itemParent_->mNodeChildren.end(); itThis++ )
+    auto itemParent = baseNode();
+
+    for ( self = itemParent->mChildrenIds.begin(); self != itemParent->mChildrenIds.end(); self++ )
     {
-      if ( this == *itThis )
+      if ( mNodeId == *self )
       {
-        if ( itThis != itemParent_->mNodeChildren.begin() )
-          other = *itOther;
+        if ( self != itemParent->mChildrenIds.begin() )
+          result = *other;
         break;
       }
-      itOther = itThis;
+      other = self;
     }
   }
-  return other;
+  return source()->findNode(result);
 }
 
 TreeViewItem* TreeViewItem::nextSibling() const
 {
-  TreeViewItem*                  other = nullptr;
+  TreeViewItem::NodeId                  other = BadNodeId;
 
-  if ( itemParent_ )
+  if ( mParentId != BadNodeId )
   {
-    for (auto it = itemParent_->mNodeChildren.begin(); it != itemParent_->mNodeChildren.end(); it++ )
+    auto itemParent = baseNode();
+
+    for (auto it = itemParent->mChildrenIds.begin(); it != itemParent->mChildrenIds.end(); it++ )
     {
-      if ( this == *it )
+      if ( mNodeId == *it )
       {
-        if ( *it != itemParent_->mNodeChildren.back() )
+        if ( *it != itemParent->mChildrenIds.back() )
           other = *( ++it );
         break;
       }
     }
   }
-  return other;
+  return source()->findNode(other);
 }
 
 Vector2i TreeViewItem::preferredSize(NVGcontext *ctx) const {
@@ -198,7 +229,7 @@ Vector2i TreeViewItem::preferredSize(NVGcontext *ctx) const {
 TreeViewItem* TreeViewItem::nextVisible() const
 {
   TreeViewItem*  next = nullptr;
-  TreeViewItem*  node = node = const_cast< TreeViewItem* >( this );
+  TreeViewItem*  node = const_cast<TreeViewItem*>(this);
 
   if ( node->isExpanded() && node->hasNodes() )
   {
@@ -222,10 +253,11 @@ TreeViewItem* TreeViewItem::nextVisible() const
 
 bool TreeViewItem::deleteNode( TreeViewItem* child )
 {
-  auto it = std::find(mNodeChildren.begin(), mNodeChildren.end(), child);
-  if (it != mNodeChildren.end())
+  auto it = std::find(mChildrenIds.begin(), mChildrenIds.end(), child->getNodeId());
+  if (it != mChildrenIds.end())
   {
-    mNodeChildren.erase(it);
+    mChildrenIds.erase(it);
+    source()->recheckChildren();
     return true;
   }
   return false;
@@ -233,15 +265,15 @@ bool TreeViewItem::deleteNode( TreeViewItem* child )
 
 bool TreeViewItem::moveNodeUp( TreeViewItem* child )
 {
-  TvIterator  itOther;
-  TreeViewItem*                  nodeTmp;
-  bool                          moved = false;
+  NodeList::iterator  itOther;
+  TreeViewItem::NodeId nodeTmp = BadNodeId;
+  bool                moved = false;
 
-  for (auto it = mNodeChildren.begin(); it != mNodeChildren.end(); it++ )
+  for (auto it = mChildrenIds.begin(); it != mChildrenIds.end(); it++ )
   {
-    if ( child == *it )
+    if ( child->getNodeId() == *it )
     {
-      if ( it != mNodeChildren.begin() )
+      if ( it != mChildrenIds.begin() )
       {
         nodeTmp = *it;
         *it = *itOther;
@@ -257,16 +289,16 @@ bool TreeViewItem::moveNodeUp( TreeViewItem* child )
 
 bool TreeViewItem::moveNodeDown( TreeViewItem* child )
 {
-  TvIterator  itChild;
-  TvIterator  itOther;
-  TreeViewItem*                  nodeTmp;
-  bool                          moved = false;
+  NodeList::iterator  itChild;
+  NodeList::iterator  itOther;
+  TreeViewItem::NodeId nodeTmp = BadNodeId;
+  bool                 moved = false;
 
-  for ( itChild = mNodeChildren.begin(); itChild != mNodeChildren.end(); itChild++ )
+  for ( itChild = mChildrenIds.begin(); itChild != mChildrenIds.end(); itChild++ )
   {
-    if ( child == *itChild )
+    if ( child->getNodeId() == *itChild )
     {
-      if ( *itChild != mNodeChildren.back() )
+      if ( *itChild != mChildrenIds.back() )
       {
         itOther = itChild;
         ++itOther;
@@ -298,7 +330,7 @@ void TreeViewItem::setSelected( bool selected )
     }
     else
     {
-      if (mOwner->selectedNode() == this)
+      if (mOwner->selectedNode() == mNodeId)
       {
         mOwner->setSelected(nullptr);
       }
@@ -310,7 +342,7 @@ bool TreeViewItem::isSelected() const
 {
   if (mOwner)
   {
-    return mOwner->selectedNode() == this;
+    return mOwner->selectedNode() == mNodeId;
   }
   else
   {
@@ -322,23 +354,17 @@ bool TreeViewItem::isRoot() const { return (mOwner && ( this == mOwner->rootNode
 
 int TreeViewItem::getLevel() const
 {
-  return itemParent_
-            ? itemParent_->getLevel() + 1
-            : 0;
+  auto p = source()->findNode(mParentId);
+  return p ? p->getLevel() + 1 : 0;
 }
 
-TreeViewItem* TreeViewItem::baseNode() const { return itemParent_; }
+TreeViewItem* TreeViewItem::baseNode() const { return source()->findNode(mParentId); }
 
 bool TreeViewItem::isVisible() const
 {
-  if ( itemParent_ )
-  {
-    return itemParent_->isExpanded() && itemParent_->isVisible();
-  }
-  else
-  {
-    return true;
-  }
+  auto p = source()->findNode(mParentId);
+
+  return (p ? (p->isExpanded() && p->isVisible()) : true);
 }
 
 void TreeViewItem::setColor( const Color& color ) {  mFontColor = color; }
@@ -346,17 +372,27 @@ bool TreeViewItem::isExpanded() const { return mExpanded; }
 
 TreeView* TreeViewItem::view() { return findParent<TreeView>(); }
 
+void TreeViewItem::performLayout(NVGcontext* ctx)
+{
+  Label::performLayout(ctx);
+}
+
 void TreeViewItem::draw(NVGcontext *ctx)
 {
   if ( !isVisible() )
     return;
 
-  Widget::draw(ctx);
   nvgFontFace(ctx, mFont.c_str());
   nvgFontSize(ctx, fontSize());
   Color color;
   if (enabled()) color = (mColor.w() > 0) ? mColor : mTheme->mTextColor;
   else color = (mDisabledColor.w() > 0) ? mDisabledColor : mTheme->mLabelTextDisabledColor;
+
+  if (source()->selectedNode() == mNodeId)
+    color = Color(0xff, 0, 0, 0xff);
+
+  if (source()->hoveredNode() == mNodeId)
+    color = Color(0, 0xff, 0, 0xff);
 
   nvgFillColor(ctx, color);
 
@@ -377,10 +413,14 @@ void TreeViewItem::draw(NVGcontext *ctx)
   }
 
   nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+  xpos += mPos.x() + mAnchorPotsition.x();
+  ypos += mPos.y();
   if (mFixedSize.x() > 0)
-    nvgTextBox(ctx, mPos.x() + xpos, mPos.y() + ypos, mFixedSize.x(), mCaption.c_str(), nullptr);
+    nvgTextBox(ctx, xpos, ypos, mFixedSize.x(), mCaption.c_str(), nullptr);
   else
-    nvgText(ctx, mPos.x() + xpos, mPos.y() + ypos, mCaption.c_str(), nullptr);
+    nvgText(ctx, xpos, ypos, mCaption.c_str(), nullptr);
+
+  Widget::draw(ctx);
 }
 
 NAMESPACE_END(nanogui)

@@ -168,6 +168,12 @@ public:
     }
 
     template<typename RetClass>
+    RetClass *findWidget(WidgetId id, bool inchildren = true)
+    {
+      return findWidget<RetClass>(std::string(id.value), inchildren);
+    }
+
+    template<typename RetClass>
     RetClass *findWidgetGlobal(const std::string& id)
     {
       Widget* f = findWidgetGlobal(id);
@@ -250,7 +256,7 @@ public:
     /// Return whether or not the widget is currently visible (assuming all parents are visible)
     bool visible() const { return mVisible; }
     /// Set whether or not the widget is currently visible (assuming all parents are visible)
-    void setVisible(bool visible) { mVisible = visible; }
+    void setVisible(bool visible);
 
     /// Check if this widget is currently visible, taking parent widgets into account
     bool visibleRecursive() const {
@@ -306,6 +312,18 @@ public:
     template<typename WidgetClass, typename... Args>
     WidgetClass* add(const Args&... args) {
         return new WidgetClass(this, args...);
+    }
+
+    bool areParentsContain(Widget* w)
+    {
+      Widget* parentw = mParent;
+      while (parentw) {
+        if (parentw == w)
+          return true;
+        parentw = parentw->parent();
+      }
+
+      return false;
     }
 
     template<typename WidgetClass>
@@ -453,6 +471,7 @@ public:
     void setDebugDraw(bool en) { mDebugDraw = en; }
 
     template<typename RetClass> RetClass* cast() { return dynamic_cast<RetClass*>(this); }
+    template<typename RetClass> const RetClass* cast() const { return dynamic_cast<const RetClass*>(this); }
 
     PROPSETTER(FixedHeight, setFixedHeight)
     PROPSETTER(FixedWidth, setFixedWidth)
@@ -531,7 +550,6 @@ protected:
      * currently visible, no time is wasted executing its drawing method.
      */
     bool mVisible;
-
     bool mSubElement = false;
     bool mDebugDraw = false;
 

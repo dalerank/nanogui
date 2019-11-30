@@ -155,6 +155,8 @@ public:
     void setClipboardString(const std::string& text);
     std::string getClipboardString();
 
+    void needPerformLayout(Widget* w);
+
     template<typename... Args>Window& window(const Args&... args) { return wdg<Window>(args...); }
 
 public:
@@ -175,7 +177,7 @@ public:
     Screen();
 
     /// Initialize the \ref Screen
-    void initialize(void *window, bool shutdownOnDestruct);
+    void initialize(void *handle, bool shutdownOnDestruct);
 
     /* Event handlers */
     bool cursorPosCallbackEvent(double x, double y);
@@ -192,14 +194,16 @@ public:
     void centerWindow(Window *window);
     void moveWindowToFront(Window *window);
     void drawWidgets();
+    intptr_t createStandardCursor(int shape);
 
 protected:
     void _drawWidgetsBefore();
     void _internalSetCursor(int cursor);
+    void _setupStartParams();
 
     void *mHwWindow;
     NVGcontext *mNVGContext;
-    void *mCursors[(int) Cursor::CursorCount];
+    intptr_t mCursors[(int)Cursor::CursorCount];
     Cursor mCursor;
     std::vector<Widget *> mFocusPath;
     Vector2i mFBSize;
@@ -214,6 +218,7 @@ protected:
     std::string mCaption;
     bool mShutdownOnDestruct;
     bool mFullscreen;
+    std::vector<Widget*> widgetsNeedUpdate;
     std::function<void(Vector2i)> mResizeCallback;
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW

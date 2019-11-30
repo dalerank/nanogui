@@ -18,9 +18,11 @@ else()
 endif()
 
 option(NANOGUI_BUILD_EXAMPLE "Build NanoGUI glfw example application?" ON)
-option(NANOGUI_GLFW_BACKEND  "Use GLFW backend?" ON)
+option(NANOGUI_VULKAN_BACKEND  "Use Vulkan backend?" OFF)
+option(NANOGUI_GLFW_BACKEND  "Use GLFW backend?" OFF)
 option(NANOGUI_DX11_BACKEND  "Use DX11 backend?" OFF)
 option(NANOGUI_DX12_BACKEND  "Use DX12 backend?" OFF)
+OPTION(NANOGUI_BGFX_BACKEND  "Use BGFX backend?" OFF)
 option(NANOGUI_BUILD_EDITOR  "Build NanoGUI editor application?" ON)
 option(NANOGUI_BUILD_SHARED  "Build NanoGUI as a shared library?" ON)
 option(NANOGUI_BUILD_PYTHON  "Build a Python plugin for NanoGUI?" ON)
@@ -30,23 +32,36 @@ option(NANOGUI_INSTALL       "Install NanoGUI on `make install`?" ON)
 set(NANOGUI_PYTHON_VERSION "" CACHE STRING "Python version to use for compiling the Python plugin")
 
 # Check that we select backend and only one backend
+if (NANOGUI_DX11_BACKEND OR NANOGUI_GLFW_BACKEND OR NANOGUI_DX12_BACKEND OR NANOGUI_VULKAN_BACKEND)  
+  set(BACKENDS_SELECTED "")
+  if (NANOGUI_GLFW_BACKEND) 
+    list(APPEND BACKENDS_SELECTED "OpenGl") 
+  endif()
+  if (NANOGUI_DX11_BACKEND) 
+    list(APPEND BACKENDS_SELECTED "DX11") 
+  endif()
+  if (NANOGUI_DX12_BACKEND) 
+    list(APPEND BACKENDS_SELECTED "DX12") 
+  endif() 
+  if (NANOGUI_VULKAN_BACKEND) 
+    list(APPEND BACKENDS_SELECTED "Vulkan") 
+  endif()
 
-if (NANOGUI_DX11_BACKEND OR NANOGUI_GLFW_BACKEND OR NANOGUI_DX12_BACKEND)  
-  if (
-    (NANOGUI_GLFW_BACKEND AND (NANOGUI_DX12_BACKEND OR NANOGUI_DX11_BACKEND)) OR
-    (NANOGUI_DX12_BACKEND AND NANOGUI_DX11_BACKEND)
-  )
+  set(BACKENDS_SELECTED_SIZE "")
+  list(LENGTH BACKENDS_SELECTED BACKENDS_SELECTED_SIZE)
+  if (NOT ${BACKENDS_SELECTED_SIZE} EQUAL "1")
     message(FATAL_ERROR "Multiple backends selected! "
-      "Select one of backends: glfw, dx11, dx12."
-      )	
+      "Select one of backends: opengl, dx11, dx12, vulkan"
+      "Current selected: ${BACKENDS_SELECTED}"
+    )	
   endif()    
 else()
   message(FATAL_ERROR "No backends selected! "
-    "Select one of backends: glfw, dx11, dx12."
-    )	  
+     "Select one of backends: opengl, dx11, dx12, vulkan"
+  )	  
 endif()
 
-if (NANOGUI_GLFW_BACKEND)  
+if (NANOGUI_GLFW_BACKEND OR NANOGUI_VULKAN_BACKEND)  
   if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/src")
     message(FATAL_ERROR "The NanoGUI dependency repositories (GLFW, etc.) are missing! "
       "You probably did not clone the project with --recursive. It is possible to recover "
@@ -88,7 +103,7 @@ macro(CHECK_CXX_COMPILER_AND_LINKER_FLAGS _RESULT _CXX_FLAGS _LINKER_FLAGS)
 endmacro()
 
 # Compile GLFW
-if (NANOGUI_GLFW_BACKEND)
+if (NANOGUI_GLFW_BACKEND OR NANOGUI_VULKAN_BACKEND)
   set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL " " FORCE)
   set(GLFW_BUILD_TESTS OFF CACHE BOOL " " FORCE)
   set(GLFW_BUILD_DOCS OFF CACHE BOOL " " FORCE)
@@ -117,7 +132,7 @@ endif()
 
 # Python support: add NANOGUI_PYTHON flag to all targets
 if (NANOGUI_BUILD_PYTHON)
-  list(APPEND NANOGUI_EXTRA_DEFS -DNANOGUI_PYTHON)
+  list(APPEND NANOGUI_EXTRA_DEFS -DNANOGUI_PYTHON) 
 endif()
 
 # Shared library mode: add dllimport/dllexport flags to all symbols
@@ -248,7 +263,7 @@ endif()
 
 list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/nanovg/src")
 
-if (NANOGUI_GLFW_BACKEND)
+if (NANOGUI_GLFW_BACKEND OR NANOGUI_VULKAN_BACKEND)
   list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/include")
 elseif (NANOGUI_DX11_BACKEND)
   add_definitions(-DNANOVG_D3D11)  
@@ -290,6 +305,13 @@ if (NANOGUI_GLFW_BACKEND)
       list(APPEND NANOGUI_EXTRA_LIBS dl)
     endif()
   endif()
+elseif (NANOGUI_VULKAN_BACKEND)
+  find_package(Vulkan REQUIRED)
+  if(NOT Vulkan_FOUND)
+      message("ERROR: Vulkan not found")
+  endif(NOT Vulkan_FOUND)
+
+  list(APPEND NANOGUI_EXTRA_LIBS ${Vulkan_LIBRARY}) 
 elseif (NANOGUI_DX11_BACKEND)
   list(APPEND NANOGUI_EXTRA_LIBS d3d11 dxguid)
 elseif (NANOGUI_DX12_BACKEND)
@@ -298,8 +320,13 @@ endif()
 
 include_directories(${NANOGUI_EIGEN_INCLUDE_DIR} ext/nanovg/src include ${CMAKE_CURRENT_BINARY_DIR})
 
-if (NANOGUI_GLFW_BACKEND)
+if (NANOGUI_GLFW_BACKEND OR NANOGUI_VULKAN_BACKEND)
   include_directories(ext/glfw/include)
+
+  message( "Vulkan include header found: ${Vulkan_INCLUDE_DIR}")
+  if (NANOGUI_VULKAN_BACKEND)
+    include_directories(${Vulkan_INCLUDE_DIR})
+  endif()  
 endif()
 
 # Run simple cmake converter to put font files into the data segment
@@ -362,6 +389,13 @@ if (NANOGUI_GLFW_BACKEND)
     src/glfw/screen_glfw.cpp
     src/glfw/gpu_glfw.cpp
   )
+elseif (NANOGUI_VULKAN_BACKEND)
+  list (APPEND NANOGUI_BACKEND_SOURCES 
+    include/nanogui/nanovg_vk.h src/vulkan/screen_vk.cpp
+    src/vulkan/vulkan_util.h src/vulkan/common_vk.cpp
+    src/vulkan/shaders_vk.cpp
+    src/vulkan/gpu_vk.cpp
+  ) 
 elseif (NANOGUI_DX11_BACKEND)
   list(APPEND NANOGUI_BACKEND_SOURCES
     src/dx11/common_dx11.h src/dx11/common_dx11.cpp 
@@ -374,19 +408,17 @@ elseif (NANOGUI_DX12_BACKEND)
     src/dx12/screen_dx12.cpp
     src/dx12/gpu_dx12.cpp
 	
-	include/nanogui/nanovg_d3d12.h    
-    src/dx12/nanovg_d3d12.cpp
-	src/dx12/nanovg_dx12_utils.cpp
-	src/dx12/nanovg_dx12_render.cpp
-	src/dx12/nanovg_dx12_alloc.cpp
-	src/dx12/nanovg_dx12_res.cpp
-    
-	src/dx12/dx12_dyn_imports.h src/dx12/dx12_dyn_imports.cpp
+  	include/nanogui/nanovg_d3d12.h  src/dx12/nanovg_d3d12.cpp
+  	src/dx12/nanovg_dx12_utils.cpp
+  	src/dx12/nanovg_dx12_render.cpp
+  	src/dx12/nanovg_dx12_alloc.cpp
+  	src/dx12/nanovg_dx12_res.cpp
+      
+  	src/dx12/dx12_dyn_imports.h src/dx12/dx12_dyn_imports.cpp
     src/dx12/dx12_subset.h src/dx12/dx12_subset.cpp
-	src/dx12/dx12_subset_resource.h src/dx12/dx12_subset_resource.cpp
-	src/dx12/dx12_subset_dheap.h src/dx12/dx12_subset_dheap.cpp
-	src/dx12/dx12_subset_pso_lib.cpp
-	
+  	src/dx12/dx12_subset_resource.h src/dx12/dx12_subset_resource.cpp
+  	src/dx12/dx12_subset_dheap.h src/dx12/dx12_subset_dheap.cpp
+  	src/dx12/dx12_subset_pso_lib.cpp
   )
 endif()
 
@@ -441,10 +473,11 @@ add_library(nanogui-obj OBJECT
   include/nanogui/widgetsfactory.h src/widgetsfactory.cpp
   include/nanogui/foldout.h src/foldout.cpp
   include/nanogui/windowmenu.h src/windowmenu.cpp
+  include/nanogui/ledmatrix.h src/ledmatrix.cpp
   include/nanogui/table.h src/table.cpp
   include/nanogui/perfchart.h src/perfchart.cpp
   include/nanogui/formhelper.h
-  include/nanogui/toolbutton.h
+  include/nanogui/toolbutton.h src/toolbutton.cpp
   include/nanogui/nanogui.h
   include/nanogui/serializer/core.h    src/serializer.cpp
 
@@ -468,7 +501,7 @@ if (CMAKE_GENERATOR STREQUAL Xcode)
     $<TARGET_OBJECTS:glfw_objects>
   )
 else()
-  if (NANOGUI_GLFW_BACKEND)
+  if (NANOGUI_GLFW_BACKEND OR NANOGUI_VULKAN_BACKEND)
     add_library(nanogui ${NANOGUI_LIBRARY_TYPE}
       $<TARGET_OBJECTS:nanogui-obj>
       $<TARGET_OBJECTS:glfw_objects>
@@ -530,26 +563,23 @@ endif()
 
 # Build example application if desired
 if(NANOGUI_BUILD_EDITOR)
-  add_executable(editor      src/editor.cpp)
-  target_link_libraries(editor      nanogui ${NANOGUI_EXTRA_LIBS})
+  add_executable(editorl      editor/editor.cpp)
+  target_link_libraries(editorl   nanogui ${NANOGUI_EXTRA_LIBS})
 
   file(COPY resources/icons DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 if(NANOGUI_BUILD_EXAMPLE)
-  if (NANOGUI_GLFW_BACKEND)
-    add_executable(example2      src/example2.cpp)
-    add_executable(example3      src/example3.cpp)
-    add_executable(example4      src/example4.cpp)
-    add_executable(example_icons src/example_icons.cpp)
-    target_link_libraries(example2      nanogui ${NANOGUI_EXTRA_LIBS})
-    target_link_libraries(example3      nanogui ${NANOGUI_EXTRA_LIBS})
-    target_link_libraries(example4      nanogui ${NANOGUI_EXTRA_LIBS})
-    target_link_libraries(example_icons nanogui ${NANOGUI_EXTRA_LIBS})
-  endif()
-
-  add_executable(example1      src/example1.cpp)
+  add_executable(example1      examples/example1.cpp)
+  add_executable(example2      examples/example2.cpp)
+  add_executable(example3      examples/example3.cpp)
+  add_executable(example4      examples/example4.cpp)
+  add_executable(example_icons examples/example_icons.cpp)
   target_link_libraries(example1      nanogui ${NANOGUI_EXTRA_LIBS})
+  target_link_libraries(example2      nanogui ${NANOGUI_EXTRA_LIBS})
+  target_link_libraries(example3      nanogui ${NANOGUI_EXTRA_LIBS})
+  target_link_libraries(example4      nanogui ${NANOGUI_EXTRA_LIBS})
+  target_link_libraries(example_icons nanogui ${NANOGUI_EXTRA_LIBS})
 
   # Copy icons for example application
   file(COPY resources/icons DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -560,15 +590,22 @@ if (NANOGUI_BUILD_PYTHON)
 
   # Try to autodetect Python (can be overridden manually if needed)
   list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11/tools")
-  set(Python_ADDITIONAL_VERSIONS 3.7 3.6 3.5 3.4)
-  find_package(PythonLibsNew ${NANOGUI_PYTHON_VERSION})
-  if (NOT PYTHONLIBS_FOUND)
-    # Python not found -- disable the plugin
-    # set(NANOGUI_BUILD_PYTHON OFF CACHE BOOL "Build a Python plugin for NanoGUI?" FORCE)
-    message(WARNING "NanoGUI: not building the Python plugin!")
+
+  if (NOT ${NANOGUI_PYTHON_VERSION})
+    set(Python_ADDITIONAL_VERSIONS 3.7 3.6 3.5 3.4)
+    find_package(PythonLibsNew ${NANOGUI_PYTHON_VERSION})
+
+    if (NOT PYTHONLIBS_FOUND)
+      # Python not found -- disable the plugin
+      # set(NANOGUI_BUILD_PYTHON OFF CACHE BOOL "Build a Python plugin for NanoGUI?" FORCE)
+      message(WARNING "NanoGUI: not building the Python plugin!")
+    else()
+      message(STATUS "NanoGUI: building the Python plugin.")
+    endif()
   else()
-    message(STATUS "NanoGUI: building the Python plugin.")
-  endif()
+    include_directories(${PYTHON_INCLUDE_DIRS})
+    message(STATUS "NanoGUI: building with Python plugin, manual options set")
+  endif()  
 endif()
 
 if (NANOGUI_BUILD_PYTHON)
@@ -576,6 +613,11 @@ if (NANOGUI_BUILD_PYTHON)
   set_target_properties(nanogui-obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
   
   set(PYTHON_BACKEND_SOURCES "")  
+  if (NANOGUI_VULKAN_BACKEND)
+    set_target_properties(glfw_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+  endif()  
+
   if (NANOGUI_GLFW_BACKEND)  
     set_target_properties(glfw_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

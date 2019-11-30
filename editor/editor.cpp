@@ -36,8 +36,10 @@
 #include <nanogui/foldout.h>
 #include <nanogui/scrollbar.h>
 #include <nanogui/treeview.h>
+#include <nanogui/treeviewitem.h>
 #include <nanogui/windowmenu.h>
 #include <nanogui/common.h>
+#include <nanogui/widgetsfactory.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -80,13 +82,13 @@ using std::to_string;
 using namespace nanogui;
 
 struct {
-  std::string layers = "#layers";
   std::string assets = "#assets";
-  std::string workspace = "#workspace";
-  std::string propeditor = "#propeditor";
-  std::string mainmenu = "#mainmenu";
+  WidgetId workspace{ "#workspace" };
+  WidgetId propeditor{ "#propeditor" };
+  WidgetId mainmenu{ "#mainmenu" };
   WidgetId editor{ "#editor" };
   WidgetId mainview{ "#mainview" };
+  WidgetId layers{ "#layers" };
 } ID;
 
 class ExampleApplication : public Screen {
@@ -110,7 +112,7 @@ public:
     Widget& createMainMenu()
     {
       auto& mmenu = wdg<WindowMenu>();
-      mmenu.setId(ID.mainmenu);
+      mmenu.setId(ID.mainmenu.value);
       mmenu.activate({ 0, 0 });
       mmenu.submenu("File")
         .item("New", [this]() { msgdialog(MessageDialog::Type::Information, "New", "New Clicked!"); })
@@ -164,35 +166,96 @@ public:
       propeditor.setDraggable(Theme::WindowDraggable::dgFixed);
 
       if (auto editor = findWidget<EditorWorkspace>(ID.workspace))
-        editor->setSelectedCallback([&](Widget* w) { propeditor.parse(w); });
+        editor->addSelectedCallback([&](Widget* w) { propeditor.parse(w); });
     }
 
     void createWorkspace(Widget& area, float relw)
     {
       auto& editor = area.wdg<EditorWorkspace>(ID.workspace);
       editor.setRelativeSize(0.7f, 1.f);
+      editor.setChildrenChangeCallback([this]() { fillTreeView(); });
+      editor.setHoveredCallback([this](Widget* w) {
+        auto treeview = findWidget<TreeView>(ID.layers);
+        auto node = treeview->findNode([w](TreeViewItem* i) -> bool { return i->data() == (intptr_t)w; });
+        treeview->setHovered(node);
+      });
+      editor.addSelectedCallback([this](Widget* w) {
+        auto treeview = findWidget<TreeView>(ID.layers);
+        auto node = treeview->findNode([w](TreeViewItem* i) -> bool { return i->data() == (intptr_t)w; });
+        treeview->setSelected(node);
+      });
     }
 
     void createControlWidgetsArea(Widget& area, float relw)
     {
-      auto& wa = area.widget(RelativeSize{ relw, 1.f }, WidgetStretchLayout{ Orientation::Vertical } );
-      auto& waheader = wa.widget(FixedHeight{ 30 }, WidgetStretchLayout{ Orientation::Horizontal });
+      auto& wa = area.vlayer(RelativeSize{ relw, 1.f });
+      auto& waheader = wa.hlayer(FixedHeight{ 30 });
 
-      auto& wawidgets = wa.widget(RelativeSize{ 1, 0 }, WidgetStretchLayout{ Orientation::Vertical });
+      auto& wawidgets = wa.vlayer(RelativeSize{ 1, 0 });
       auto& fo = wawidgets.wdg<Foldout>("#foldout_ed");
-      fo.show();
-      fo.addPage("page1", "Page1", new Widget(this));
-      fo.addPage("page2", "Page2", new Widget(this));
-      fo.addPage("page3", "Page3", new Widget(this));
-      fo.addPage("page4", "Page4", new Widget(this));
+      auto& wfactory = WidgetFactory::instance();
+      for (auto f : wfactory.factories())
+      {
+        auto& layer = this->vlayer();
+        for (auto wt : f->types())
+          layer.button(Caption{ wt }, FixedHeight{ 22 });
+        fo.addPage(f->name(), f->name(), &layer);
+      }
+      fo.hide();
 
-      auto& view = wawidgets.wdg<TreeView>(RelativeSize{ 1, 0 }, WidgetId{ "#treeview_ed" });
+      auto& view = wawidgets.wdg<TreeView>(RelativeSize{ 1, 0 }, ID.layers);
       view.setRelativeSize(1, 1);
-      view.hide();
+      view.show();
+
+      view.setSelectNodeCallback([this](TreeViewItem* w) {
+        if (!w) return;
+        auto editor = findWidget<EditorWorkspace>(ID.workspace);
+        editor->setSelectedElement((Widget*)w->data());
+      });
+
+      view.setHoverNodeCallback([this](TreeViewItem* w) {
+        if (!w) return;
+        auto editor = findWidget<EditorWorkspace>(ID.workspace);
+        editor->setHoveredElement((Widget*)w->data());
+      });
 
       waheader.button(Caption{ "Assets" }, ButtonCallback{ [&] { view.hide(); fo.show(); } });
       waheader.button(Caption{ "Layers" }, ButtonCallback{ [&] { view.show(); fo.hide(); } });
+    }
 
+    void addTreeViewNode(TreeViewItem* item, Widget* w)
+    {
+      auto node = item->addNode("Unknown widget");
+      node->setData((intptr_t)w);
+      if (auto parea = node->previewArea())
+      {
+        parea->add<ToggleButton>(Icon{ ENTYPO_ICON_LOCK },
+          ButtonChangeCallback{ [this,w](bool pressed) {
+            if (auto workspace = findWidget<EditorWorkspace>(ID.workspace))
+              workspace->setWidgetEditable((intptr_t)w, pressed);
+          }
+        });
+
+        parea->add<ToggleButton>(Icon{ ENTYPO_ICON_EYE },
+          ButtonChangeCallback{ [w](bool pressed) { w->setVisible(pressed); }
+        });
+      }
+
+      for (auto& c : w->children())
+        addTreeViewNode(node, c);
+    }
+
+    void fillTreeView()
+    {
+      auto treeview = findWidget<TreeView>(ID.layers);
+      auto editor = findWidget<EditorWorkspace>(ID.workspace);
+      if (!treeview)
+        return;
+
+      treeview->removeAllNodes();
+
+      for (auto& c : editor->children())
+        addTreeViewNode(treeview->rootNode(), c);
     }
 
     void createBaseEditorWidget(Widget& area)
@@ -224,10 +287,6 @@ public:
     }
 
     virtual void draw(NVGcontext *ctx) {
-        /* Animate the scrollbar */
-        if (mProgress)
-          mProgress->setValue(std::fmod((float) nanogui::getTimeFromStart() / 10, 1.0f));
-
         /* Draw the user interface */
         Screen::draw(ctx);
     }
@@ -256,10 +315,6 @@ public:
         }
         return true;
     }
-
-private:
-    nanogui::ProgressBar *mProgress = nullptr;
-    int mCurrentImage;
 };
 
 int main(int /* argc */, char ** /* argv */) {

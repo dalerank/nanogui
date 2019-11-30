@@ -25,16 +25,17 @@ NAMESPACE_BEGIN(nanogui)
  */
 DECLSETTER(ButtonCallback, std::function<void()>)
 DECLSETTER(ButtonFlags, int)
+DECLSETTER(ButtonDrawFlags, int)
 DECLSETTER(ButtonChangeCallback, std::function<void (bool)>)
 
 class NANOGUI_EXPORT Button : public Widget {
 public:
     /// Flags to specify the button behavior (can be combined with binary OR)
-    enum Flags {
-        NormalButton = 0, ///< A normal Button.
-        RadioButton  = 1, ///< A radio Button.
-        ToggleButton = 2, ///< A toggle Button.
-        PopupButton  = 3  ///< A popup Button.
+    enum Flag {
+        NormalButton = 1<<0, ///< A normal Button.
+        RadioButton  = 1<<1, ///< A radio Button.
+        ToggleButton = 1<<2, ///< A toggle Button.
+        PopupButton  = 1<<3  ///< A popup Button.
     };
 
     /// The available icon positions.
@@ -43,6 +44,13 @@ public:
         LeftCentered, ///< Button icon on the left, centered (depends on caption text length).
         RightCentered,///< Button icon on the right, centered (depends on caption text length).
         Right         ///< Button icon on the far right.
+    };
+
+    enum DrawFlag {
+        DrawBody =   1,
+        DrawText =   2,
+        DrawBorder = 3,
+        DrawIcon =   4
     };
 
     /**
@@ -91,13 +99,14 @@ public:
     void setIcon(int icon) { mIcon = icon; }
 
     /// The current flags of this Button (see \ref nanogui::Button::Flags for options).
-    bool haveFlag(int flag) const { return mFlags.test(flag); }
+    bool haveFlag(int flag) const { return (mFlags & flag) == flag; }
 
     /// Sets the flags of this Button (see \ref nanogui::Button::Flags for options).
-    void setFlags(int buttonFlags) { mFlags.reset(); mFlags != buttonFlags; }
+    void setFlags(int flags) { mFlags = flags; }
+    void setFlag(int flags) { mFlags |= flags; }
 
-    void setToggleButton(bool en) { if (en) mFlags.set(Button::ToggleButton);
-                                    else mFlags.reset(Button::ToggleButton); }
+    void setToggleButton(bool en) { if (en) mFlags |= Button::ToggleButton;
+                                    else mFlags &= ~Button::ToggleButton; }
 
     /// The position of the icon for this Button.
     IconPosition iconPosition() const { return mIconPosition; }
@@ -129,6 +138,8 @@ public:
     /// The current button group (for radio buttons).
     const std::vector<Button *> &buttonGroup() const { return mButtonGroup; }
 
+    std::string wtypename() const override { return "button"; }
+
     /// The preferred size of this Button.
     virtual Vector2i preferredSize(NVGcontext *ctx) const override;
 
@@ -146,9 +157,13 @@ public:
     virtual bool load(Serializer &s) override;
     bool load(Json::value &s) override;
 
+    void setDrawFlags(int flags) { mDrawFlags = flags; }
+    bool haveDrawFlag(int flag) { return (mDrawFlags & flag)==flag; }
+
 protected:
 
     virtual void beforeDoCallback() {}
+    virtual void beforeDoChangeCallback(bool) {}
     /// The caption of this Button.
     std::string mCaption;
 
@@ -172,7 +187,8 @@ protected:
     bool mPushed;
 
     /// The current flags of this button (see \ref nanogui::Button::Flags for options).
-    std::bitset<8> mFlags;
+    int mFlags;
+    int mDrawFlags;
 
     /// The background color of this Button.
     Color mBackgroundColor;
@@ -198,6 +214,7 @@ public:
     PROPSETTER(Icon, setIcon)
     PROPSETTER(BackgroundColor,setBackgroundColor)
     PROPSETTER(ButtonFlags,setFlags)
+    PROPSETTER(ButtonDrawFlags, setDrawFlags)
     PROPSETTER(ButtonChangeCallback,setChangeCallback)
 };
 

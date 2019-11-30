@@ -3,6 +3,7 @@
 #include <nanogui/widget.h>
 #include <nanogui/common.h>
 #include <map>
+#include <set>
 #include <string>
 
 NAMESPACE_BEGIN(nanogui)
@@ -40,7 +41,12 @@ public:
         ResizeLeft
     };
 
-    EditorWorkspace( Widget* parent, std::string id );
+    EditorWorkspace( Widget* parent, const std::string& id);
+
+    using Widget::set;
+    template<typename... Args>
+    EditorWorkspace(Widget* parent, const Args&... args)
+      : EditorWorkspace(parent, std::string("")) { set<EditorWorkspace, Args...>(args...); }
 
     virtual ~EditorWorkspace();
 
@@ -61,8 +67,7 @@ public:
     void setMode( EditMode mode );
 
     void performLayout(NVGcontext *ctx) override;
-
-    //virtual void setMenuCommandIDStart(s32 id);
+    void setWidgetEditable(intptr_t ptr, bool canEdit);
 
     void removeChild(const Widget* child) override;
 
@@ -77,20 +82,16 @@ public:
 
     //! returns the first editable element under the mouse
     virtual Widget* getEditableElementFromPoint(Widget *start, const Vector2i &point);
+    void setSelectedElement(Widget *elm);
+    void setHoveredElement(Widget *elm);
 
-    //! selecting elements
-    virtual void setSelectedElement(Widget *sel);
-    virtual void selectNextSibling();
-    virtual void selectPreviousSibling();
+    void selectNextSibling();
+    void selectPreviousSibling();
 
-    //! returns the selected element
-    virtual Widget* getSelectedElement();
+    Widget* getSelectedElement();
 
-    //! copies the xml of the selected element and all children to the clipboard
-    virtual void copySelectedElementToJson();
-
-    //! copies the xml of the selected element and all children to the clipboard
-    virtual void pasteJsonToSelectedElement();
+    void copySelectedElementToJson();
+    void pasteJsonToSelectedElement();
 
     std::string wtypename() const override;
 
@@ -119,9 +120,11 @@ public:
     void update();
     void preview();
 
-    void setSelectedCallback(std::function<void(Widget*)> callback) { mWidgetSelectedCallback = callback; }
+    using WidgetCallback = std::function<void(Widget*)>;
+    void addSelectedCallback(WidgetCallback callback) { mSelectedCallbacks.push_back(callback); }
+    void setChildrenChangeCallback(std::function<void()> callback) { mChildrenChangeCallback = callback; }
+    void setHoveredCallback(WidgetCallback callback) { mWidgetHoveredCallback = callback; }
 
-//slots:
     void toggleOptionsVisible();
     void activateChangeParentMode();
     void userChangeOptions();
@@ -129,18 +132,23 @@ public:
     void saveSelectedElementToJson();
 
 private:
-
     EditMode getModeFromPos(const Vector2i &p);
 
-    std::function<void(Widget*)> mWidgetSelectedCallback;
 
-    //void _createEditorMenu();
-    //void _createElementsWindow();
+    std::vector<WidgetCallback> mSelectedCallbacks;
+    std::function<void(Widget*)> mWidgetHoveredCallback;
+    std::function<void()> mChildrenChangeCallback;
+
     void _drawSelectedElement(NVGcontext* ctx);
     void _drawResizePoints(NVGcontext* ctx);
     void _drawWidthRectangle(NVGcontext* ctx, Color& color, int width, const Vector4i& rectangle);
     void _drawResizePoint(NVGcontext* ctx, const Color& color, const Vector4i& rectangle);
     void _createElementsMap( Widget* start, std::map<std::string, Widget*>& mapa );
+    void _sendSelectElementChangedEvent();
+    void _sendHoveredElementChangedEvent();
+
+    std::set<intptr_t> nonEditableElms;
+
     EditMode  _currentMode;
     EditMode  _mouseOverMode;
     Vector2i  _dragStart;
@@ -152,10 +160,9 @@ private:
     bool      _drawGrid, _useGrid, _running;
 
     Widget* mElementUnderMouse = nullptr;
-    Widget* _selectedElement = nullptr;
-    Window* _previewWindow = nullptr;
+    Widget* mSelectedElement = nullptr;
     FactoryView* _factoryView = nullptr;
-    Window* _optionsWindow;
+    Window* _optionsWindow = nullptr;
     //ChangesManager* _changesManager;
 
     struct {

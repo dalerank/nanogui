@@ -8,7 +8,6 @@
 
 NAMESPACE_BEGIN(nanogui)
 
-//! constructor
 TreeView::TreeView( Widget* parent, bool clip,
   bool drawBack, bool scrollBarVertical, bool scrollBarHorizontal)
   : Widget( parent ),
@@ -38,11 +37,67 @@ TreeView::TreeView( Widget* parent, bool clip,
 
   mRoot = add<TreeViewItem>();
   mRoot->mExpanded = true;
+  *(const_cast<TreeViewItem::NodeId*>(&mRoot->mNodeId)) = TreeViewItem::RootNodeId;
   mNeedRecalculateItemsRectangle = true;
-  mSelected = nullptr;
+  mNeedRecheckChildren = true;
+  mSelected = TreeViewItem::BadNodeId;
 }
 
 TreeView::~TreeView() {}
+
+void TreeView::removeAllNodes()
+{
+  mRoot->removeAllNodes();
+}
+
+void TreeView::removeNode(TreeViewItem::NodeId id)
+{
+  auto* node = findNode(id);
+  if (node)
+    removeChild(node);
+}
+
+TreeViewItem& TreeView::addNode()
+{
+  static size_t nodeIdCounter = 1;
+  auto& node = wdg<TreeViewItem>();
+  *(const_cast<TreeViewItem::NodeId*>(&node.mNodeId)) = nodeIdCounter++;
+  return node;
+}
+
+TreeViewItem* TreeView::findNode(std::function<bool(TreeViewItem*)> f)
+{
+  if (!f)
+    return nullptr;
+
+  for (auto& c : children())
+  {
+    if (auto twi = c->cast<TreeViewItem>())
+    {
+      if (f(twi))
+        return twi;
+    }
+  }
+
+  return nullptr;
+}
+
+TreeViewItem* TreeView::findNode(TreeViewItem::NodeId id)
+{
+  if (id == TreeViewItem::BadNodeId)
+    return nullptr;
+
+  for (auto& c : children())
+  {
+    if (auto twi = c->cast<TreeViewItem>())
+    {
+      if (twi->getNodeId() == id)
+        return twi;
+    }
+  }
+
+  return nullptr;
+}
 
 void TreeView::_recalculateItemsRectangle(NVGcontext* ctx)
 {
@@ -77,43 +132,13 @@ bool TreeView::mouseButtonEvent(const Vector2i &p, int button, bool down, int mo
 {
   if (isMouseButtonLeft(button) && down)
   {
-    if ( focused() && !isPointInsideRect(p, rect()) )
-    {
-      //removeFocus();
-      return false;
-    }
-
-    /*if (focused() &&
-      (
-           ( mScrollBarV && ScrollBarV->getAbsoluteRect().isPointInside( p ) && ScrollBarV->onEvent( event ) )
-        || ( mScrollBarH && ScrollBarH->getAbsoluteRect().isPointInside( p ) && ScrollBarH->onEvent( event ) )
-      )
-      )
-    {
-      return true;
-    }*/
-
     mSelecting = true;
     requestFocus();
-    return true;
   }
-
-  if (isMouseButtonLeft(button) && !down)
+  else if (isMouseButtonLeft(button) && !down)
   {
-     /*if ( focused() &&
-      (
-           ( mScrollBarV && ScrollBarV->getAbsoluteRect().isPointInside( p ) && ScrollBarV->onEvent( event ) )
-        || ( mScrollBarH && ScrollBarH->getAbsoluteRect().isPointInside( p ) &&  ScrollBarH->onEvent( event ) )
-      )
-      )
-    {
-      return true;
-    }*/
-
+    _mouseAction( p.x(), p.y(), false );
     mSelecting = false;
-    //removeFocus();
-    _mouseAction( p.x(), p.y() );
-    return true;
   }
 
   return Widget::mouseButtonEvent(p, button, down, modifiers);
@@ -121,14 +146,11 @@ bool TreeView::mouseButtonEvent(const Vector2i &p, int button, bool down, int mo
 
 bool TreeView::mouseMotionEvent(const Vector2i &p, const Vector2i &rel, int button, int modifiers)
 {
-  if (mSelecting)
+  if (isPointInsideRect(p, rect()))
   {
-    if (isPointInsideRect(p, rect()))
-    {
-      _mouseAction( p.x(), p.y(), true );
-      return true;
-    }
+    _mouseAction( p.x(), p.y(), !mSelecting );
   }
+
   return Widget::mouseMotionEvent(p, rel, button, modifiers);
 }
 
@@ -180,6 +202,7 @@ bool TreeView::focusEvent(bool focused)
 void TreeView::_mouseAction( int xpos, int ypos, bool onlyHover /*= false*/ )
 {
   auto oldSelected = mSelected;
+  TreeViewItem* selectedPtr = nullptr;
   TreeViewItem* hitNode;
   int   selIdx;
   int   n;
@@ -209,46 +232,39 @@ void TreeView::_mouseAction( int xpos, int ypos, bool onlyHover /*= false*/ )
     ++n;
   }
 
-  if (hitNode && xpos > hitNode->getLevel() * mIndentWidth)
+  if (onlyHover)
   {
-    mSelected = hitNode;
+    mHovered = (hitNode ? hitNode->getNodeId() : TreeViewItem::BadNodeId);
+    if (mHoverNodeCallback)
+      mHoverNodeCallback(hitNode);
   }
-
-  if (hitNode && !onlyHover
-      && xpos < hitNode->getLevel() * mIndentWidth
-      && xpos > ( hitNode->getLevel() - 1 ) * mIndentWidth
-      && hitNode->hasNodes() )
+  else
   {
-        hitNode->setExpanded( !hitNode->isExpanded() );
-
-    // post expand/collaps news
-    bool expanded = hitNode->isExpanded();
-    mLastEventNode = hitNode;
-    //nodeExpand(mLastEventNode, !expanded);
-    mLastEventNode = nullptr;
-  }
-
-  if (mSelected && !mSelected->isVisible())
-  {
-    mSelected = nullptr;
-  }
-
-  // post selection news
-
-  if (!onlyHover && mSelected != oldSelected)
-  {
-    if ( oldSelected )
+    if (hitNode && xpos > hitNode->getLevel() * mIndentWidth)
     {
-      mLastEventNode = oldSelected;
-      //nodeDeselect(mLastEventNode);
-      mLastEventNode = nullptr;
+      selectedPtr = hitNode;
+      mSelected = selectedPtr ? selectedPtr->getNodeId() : TreeViewItem::BadNodeId;
     }
-    if ( mSelected )
+
+    if (hitNode
+        && xpos < hitNode->getLevel() * mIndentWidth
+        && xpos >(hitNode->getLevel() - 1) * mIndentWidth
+        && hitNode->hasNodes())
     {
-      mLastEventNode = mSelected;
-      //nodeSelect(_lastEventNode);
-      mLastEventNode = nullptr;
+      hitNode->setExpanded(!hitNode->isExpanded());
+
+      // post expand/collaps news
+      bool expanded = hitNode->isExpanded();
     }
+
+    if (selectedPtr && !selectedPtr->isVisible())
+    {
+      selectedPtr = nullptr;
+      mSelected = TreeViewItem::BadNodeId;
+    }
+
+    if (mSelectNodeCallback)
+      mSelectNodeCallback(selectedPtr);
   }
 }
 
@@ -258,8 +274,8 @@ Color TreeView::_getCurrentNodeColor( TreeViewItem* node )
 {
     Color textCol = 0xffc0c0c0;
 
-    if ( enabled() )
-      textCol = ( node == mSelected ) ? 0xffffffff : 0xff000000;
+    if (node && enabled())
+      textCol = ( node->getNodeId() == mSelected ) ? 0xffffffff : 0xff000000;
 
     return textCol;
 }
@@ -269,10 +285,55 @@ std::string TreeView::_getCurrentNodeFont( TreeViewItem* node)
   return "sans";
 }
 
+void TreeView::recheckChildren() { mNeedRecheckChildren = true; }
+
+void TreeView::performLayout(NVGcontext *ctx)
+{
+  Widget::performLayout(ctx);
+
+  mNeedRecheckChildren = true;
+  mNeedUpdateItems = true;
+}
+
 void TreeView::afterDraw(NVGcontext* ctx)
 {
-  if ( !visible() )
-    return;
+  if (mNeedRecheckChildren)
+  {
+    mNeedRecheckChildren = false;
+
+    std::vector<TreeViewItem*> nodes = findAll<TreeViewItem>();
+    struct NodeExist { TreeViewItem::NodeId id; bool alive; };
+    std::vector<NodeExist> all_ids;
+    //collect all id from nodes, dont add root node, because it always present
+    for (auto& n : nodes)
+    {
+      if (n != mRoot)
+        all_ids.push_back({ n->getNodeId(), false });
+    }
+
+    //check each id, that it contain at least in once node
+    for (auto& c: all_ids)
+    {
+      for (auto& n : nodes)
+      {
+        bool exist = n->isAliveId(c.id);
+        if (exist)
+        {
+          c.alive = true;
+          break;
+        }
+      }
+    }
+
+    //now all_ids contain information about which nodes are empty
+    for (auto& c : all_ids)
+    {
+      if (!c.alive)
+      {
+        removeNode(c.id);
+      }
+    }
+  }
 
   if ( mNeedUpdateItems )
   {
@@ -307,8 +368,9 @@ void TreeView::afterDraw(NVGcontext* ctx)
         fontNode = "sans";
 
       Vector2i pfsize = node->preferredSize(ctx);
-      node->setPosition( pos + offset );
-      node->setSize(pfsize);
+      node->setPosition(0, (pos + offset).y() );
+      node->setAnchorPosition(pos);
+      node->setFixedSize({ width(), pfsize.y() });
 
       node = node->nextVisible();
 
@@ -343,7 +405,7 @@ void TreeView::draw(NVGcontext* ctx)
   Vector2i framePos;
   while (node)
   {
-    framePos = node->position();
+    framePos = node->anchorPosition();
     Vector2i ns = node->size();
     int centerYofs = (ns.y() - rsize.y()) / 2;
     Vector2i center = mPos + framePos + rsize / 2;
@@ -440,6 +502,5 @@ void TreeView::draw(NVGcontext* ctx)
 
 void TreeView::setImageLeftOfIcon( bool bLeftOf ) { mImageLeftOfIcon = bLeftOf; }
 bool TreeView::getImageLeftOfIcon() const { return mImageLeftOfIcon; }
-TreeViewItem* TreeView::getLastEventNode() const { return mLastEventNode; }
 
 NAMESPACE_END(nanogui)

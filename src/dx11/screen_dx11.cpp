@@ -396,7 +396,7 @@ Screen::Screen(const Vector2i &size, const std::string &caption, bool resizable,
         rcWin.right += -rcWin.left;
         rcWin.bottom += -rcWin.top;
 
-        mHwWindow = (void*)CreateWindowEx(0, pszWindowClass, (caption + " (DX11)").c_str(), WS_OVERLAPPEDWINDOW,
+        mHwWindow = (void*)CreateWindowEx(0, pszWindowClass, (mCaption + " (DX11)").c_str(), WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT, (int)rcWin.right, (int)rcWin.bottom, NULL, NULL, hInstance, NULL);
     }
 
@@ -519,9 +519,9 @@ LPSTR translateCursorShape(int shape)
     return nullptr;
 }
 
-HICON createStandardCursor(HWND window, int shape)
+intptr_t Screen::createStandardCursor(int shape)
 {
-  return CopyCursor(LoadCursorA(NULL, translateCursorShape(shape)));
+  return (intptr_t)CopyCursor(LoadCursorA(NULL, translateCursorShape(shape)));
 }
 
 void setWindowSize(HWND window, int w, int h)
@@ -561,21 +561,8 @@ void Screen::initialize(void *window, bool shutdownOnDestruct) {
     if (mNVGContext == nullptr)
         throw std::runtime_error("Could not initialize NanoVG!");
 
-    mVisible = true;
-    setTheme(new Theme(mNVGContext));
-    mMousePos = Vector2i::Zero();
-    mMouseState = mModifiers = 0;
-    mDragActive = false;
-    mLastInteraction = getTimeFromStart();
-    mProcessEvents = true;
     __nanogui_screens[(HWND)mHwWindow] = this;
-
-    for (int i=0; i < (int) Cursor::CursorCount; ++i)
-        mCursors[i] = (void*)createStandardCursor((HWND)mHwWindow, i);
-
-    /// Fixes retina display-related font rendering issue (#185)
-    nvgBeginFrame(mNVGContext, mSize[0], mSize[1], mPixelRatio);
-    nvgEndFrame(mNVGContext);
+    _setupStartParams();
 }
 
 void Screen::setVisible(bool visible) {

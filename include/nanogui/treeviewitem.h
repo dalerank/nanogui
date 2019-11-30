@@ -13,16 +13,20 @@ class TreeView;
 class NANOGUI_EXPORT TreeViewItem : public Label
 {
   friend class TreeView;
+  const size_t mNodeId;
 
 public:
-  using NodeList = std::list<TreeViewItem*>;
-  using TvIterator = NodeList::iterator;
+  using NodeId = size_t;
+  enum { RootNodeId = 0xfefefefe, BadNodeId = 0xffffffff };
+  using NodeList = std::list<NodeId>;
 
   explicit TreeViewItem(Widget* widget);
   ~TreeViewItem() override;
 
   TreeView* source() const;
   TreeViewItem* baseNode() const;
+
+  Widget* previewArea() { return mPreviewArea; }
 
   Vector2i preferredSize(NVGcontext *ctx) const override;
 
@@ -34,12 +38,20 @@ public:
   int selectedImageIndex() const { return SelectedImageIndex; }
   void setSelectedImageIndex( int imageIndex ) { SelectedImageIndex = imageIndex; }
 
-  void* getData() const { return Data; }
-  void setData( void* data ) { Data = data; }
+  intptr_t data() const { return mData; }
+  void setData( intptr_t data ) { mData = data; }
+  void setAnchorPosition(const Vector2i& pos) { mAnchorPotsition = pos; }
+  const Vector2i anchorPosition() const { return mAnchorPotsition; }
 
   int nodesCount() const;
-  void clearNodes();
   bool hasNodes() const;
+
+  bool isAliveId(NodeId id);
+
+  void removeChild(const Widget *widget) override;
+  void removeNode(const Widget* node);
+
+  NodeId getNodeId() const { return mNodeId; }
 
   //! Adds a new node behind the last child node.
   //! \param text text of the new node
@@ -55,16 +67,15 @@ public:
     int icon = -1,
     int imageIndex = -1,
     int selectedImageIndex = -1,
-    void* data = nullptr);
+    intptr_t data = 0);
 
   TreeViewItem* addNode(
     const std::string& text,
     int icon = -1,
     int imageIndex = -1,
     int selectedImageIndex = -1,
-    void* data = nullptr)
+    intptr_t data = 0)
   { return addNodeBack(text, icon, imageIndex, selectedImageIndex, data); }
-
 
   //! Adds a new node before the first child node.
   //! \param text text of the new node
@@ -77,10 +88,10 @@ public:
   //! returns the new node
   TreeViewItem* addNodeFront(
     const std::string&    text,
-    int    icon = -1,
-    int          imageIndex = -1,
-    int          selectedImageIndex = -1,
-    void*        data = nullptr );
+    int      icon = -1,
+    int      imageIndex = -1,
+    int      selectedImageIndex = -1,
+    intptr_t data = 0 );
 
   //! Adds a new node behind the other node.
   //! The other node has also te be a child node from this node.
@@ -95,10 +106,10 @@ public:
   TreeViewItem* insertNodeAfter(
     TreeViewItem*  other,
     const std::string&    text,
-    int    icon = -1,
-    int          imageIndex = -1,
-    int          selectedImageIndex = -1,
-    void*          data = nullptr );
+    int   icon = -1,
+    int   imageIndex = -1,
+    int   selectedImageIndex = -1,
+    intptr_t data = 0);
 
   //! Adds a new node before the other node.
   //! The other node has also te be a child node from this node.
@@ -113,22 +124,23 @@ public:
   TreeViewItem* insertNodeBefore(
     TreeViewItem*  other,
     const std::string&    text,
-    int    icon = -1,
-    int          imageIndex = -1,
-    int          selectedImageIndex = -1,
-    void*          data = nullptr );
+    int   icon = -1,
+    int   imageIndex = -1,
+    int   selectedImageIndex = -1,
+    intptr_t data = 0);
 
   TreeViewItem* front() const;
   TreeViewItem* back() const;
 
   void draw(NVGcontext* ctx) override;
+  void performLayout(NVGcontext* ctx) override;
 
   TreeViewItem* prevSibling() const;
   TreeViewItem* nextSibling() const;
   TreeViewItem* nextVisible() const;
-  bool deleteNode( TreeViewItem* child );
-  bool moveNodeUp( TreeViewItem* child );
-  bool moveNodeDown( TreeViewItem* child );
+  bool deleteNode(TreeViewItem* child);
+  bool moveNodeUp(TreeViewItem* child);
+  bool moveNodeDown(TreeViewItem* child);
   bool isExpanded() const;
   void setExpanded( bool expanded );
   bool isSelected() const;
@@ -140,20 +152,24 @@ public:
   Color getColor() const { return mFontColor; }
   const std::string& getActiveFont() { return mActiveFont; }
 
+  void removeAllNodes();
+
   TreeView* view();
 
 private:
-  void init_();
+  void _init();
 
   TreeView*  mOwner;
-  TreeViewItem*  itemParent_;
+  Widget* mPreviewArea = nullptr;
+  NodeId  mParentId;
   Color mFontColor;
+  Vector2i mAnchorPotsition;
   int  mIcon;
   int  mImageIndex;
   int  SelectedImageIndex;
-  void*  Data;
+  intptr_t mData;
   bool mExpanded;
-  NodeList mNodeChildren;
+  NodeList mChildrenIds;
   std::string mActiveFont;
 
 public:

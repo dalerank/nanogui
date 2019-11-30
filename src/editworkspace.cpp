@@ -8,10 +8,13 @@ NAMESPACE_BEGIN(nanogui)
 
 static const std::string attrEditorName = "attributeEditor";
 
-EditorWorkspace::EditorWorkspace(Widget* parent, std::string id )
-    : Widget(parent),
-  _currentMode(EditMode::Select), _mouseOverMode(EditMode::Select),
-  _gridSize(10,10), _drawGrid( true ), _useGrid(true),
+EditorWorkspace::EditorWorkspace(Widget* parent, const std::string& id )
+  : Widget(parent),
+  _currentMode(EditMode::Select),
+  _mouseOverMode(EditMode::Select),
+  _gridSize(10,10),
+  _drawGrid( true ),
+  _useGrid(true),
   _running( true )
 {
   setId(id);
@@ -57,26 +60,28 @@ EditorWorkspace::EditMode EditorWorkspace::getModeFromPos( const Vector2i& p )
 {
     try
     {
-      Vector2i offset = getOffsetToChild(_selectedElement, this);
-      if (_selectedElement)
+      Vector2i offset = getOffsetToChild(mSelectedElement, this);
+      if (mSelectedElement)
       {
-        if ( isPointInsideRect( p, editArea.topleft) )
+        bool canResize = nonEditableElms.count((intptr_t)mSelectedElement) == 0;
+
+        if (canResize && isPointInsideRect( p, editArea.topleft) )
           return EditMode::ResizeTopLeft;
-        else if ( isPointInsideRect( p, editArea.topright) )
+        else if (canResize && isPointInsideRect( p, editArea.topright) )
           return EditMode::ResizeTopRight;
-        else if ( isPointInsideRect( p, editArea.bottomleft) )
+        else if (canResize && isPointInsideRect( p, editArea.bottomleft) )
           return EditMode::ResizeBottomLeft;
-        else if (isPointInsideRect( p, editArea.bottomright) )
+        else if (canResize && isPointInsideRect( p, editArea.bottomright) )
           return EditMode::ResizeBottpmRight;
-        else if ( isPointInsideRect( p, editArea.top) )
+        else if (canResize && isPointInsideRect( p, editArea.top) )
           return EditMode::ResizeTop;
-        else if ( isPointInsideRect( p, editArea.bottom) )
+        else if (canResize && isPointInsideRect( p, editArea.bottom) )
           return EditMode::ResizeBottom;
-        else if ( isPointInsideRect( p, editArea.left) )
+        else if (canResize && isPointInsideRect( p, editArea.left) )
           return EditMode::ResizeLeft;
-        else if ( isPointInsideRect( p, editArea.right) )
+        else if (canResize && isPointInsideRect( p, editArea.right) )
           return EditMode::ResizeRight;
-        else if ( getEditableElementFromPoint( _selectedElement, p - offset) == _selectedElement )
+        else if ( getEditableElementFromPoint(mSelectedElement, p - offset) == mSelectedElement)
           return EditMode::Move;
         else
           return EditMode::Select;
@@ -117,6 +122,11 @@ Widget* EditorWorkspace::getEditableElementFromPoint(Widget* start, const Vector
     return target;
 }
 
+void EditorWorkspace::setHoveredElement(Widget *elm)
+{
+  mElementUnderMouse = elm;
+}
+
 void EditorWorkspace::setSelectedElement(Widget *sel)
 {
   Widget* focus = findWidget([](Widget* w) -> bool { return w->focused(); });
@@ -125,18 +135,17 @@ void EditorWorkspace::setSelectedElement(Widget *sel)
     focus = nullptr;
 
   bool needUpdateSelectedElm = false;
-  if (_selectedElement != this)
+  if (mSelectedElement != this)
   {
-    if ( _selectedElement != sel)// && _editorWindow )
+    if (mSelectedElement != sel)// && _editorWindow )
     {
-      //_editorWindow->setSelectedElement(sel);
-      _selectedElement = sel;
+      mSelectedElement = sel;
       needUpdateSelectedElm = true;
     }
   }
   else
   {
-    _selectedElement = nullptr;
+    mSelectedElement = nullptr;
     needUpdateSelectedElm = true;
   }
 
@@ -145,66 +154,73 @@ void EditorWorkspace::setSelectedElement(Widget *sel)
   else
      requestFocus();
 
-  if (mWidgetSelectedCallback && needUpdateSelectedElm)
-    mWidgetSelectedCallback(sel);
+  if (needUpdateSelectedElm)
+    _sendSelectElementChangedEvent();
+}
+
+void EditorWorkspace::setWidgetEditable(intptr_t ptr, bool canEdit)
+{
+  if (canEdit) nonEditableElms.erase(ptr);
+  else nonEditableElms.insert(ptr);
 }
 
 Widget* EditorWorkspace::getSelectedElement()
 {
-  return _selectedElement;
+  return mSelectedElement;
 }
 
 void EditorWorkspace::selectNextSibling()
 {
   Widget* p=nullptr;
 
-  if (_selectedElement && _selectedElement->parent())
-    p = _selectedElement->parent();
+  if (mSelectedElement && mSelectedElement->parent())
+    p = mSelectedElement->parent();
   else
     p = parent();
 
   auto it = p->children().begin();
   // find selected element
-  if (_selectedElement)
-    while (*it != _selectedElement)
+  if (mSelectedElement)
+  {
+    while (*it != mSelectedElement)
       ++it;
+  }
 
   if (it !=p->children().end())
     ++it;
 
-  // find next non sub-element
-  //while (it != p->children().end())
-  //  ++it;
-
   if (it != p->children().end())
+  {
     setSelectedElement(*it);
+    _sendSelectElementChangedEvent();
+  }
 }
 
 void EditorWorkspace::selectPreviousSibling()
 {
   Widget* p=0;
 
-  if (_selectedElement && _selectedElement->parent())
-    p = _selectedElement->parent();
+  if (mSelectedElement && mSelectedElement->parent())
+    p = mSelectedElement->parent();
   else
     p = parent();
 
   auto it = p->children().begin();
   // find selected element
-  if (_selectedElement)
+  if (mSelectedElement)
   {
-    while (*it != _selectedElement)
+    while (*it != mSelectedElement)
       ++it;
   }
 
   if (it != p->children().end())
     ++it;
-  // find next non sub-element
-  //while (it != p->children().end() && (*it)->isSubElement())
-  //  ++it;
 
   if (it != p->children().end())
+  {
     setSelectedElement(*it);
+    _sendSelectElementChangedEvent();
+  }
 }
 
 void EditorWorkspace::_createElementsMap( Widget* start, std::map< std::string, Widget* >& mapa )
@@ -254,6 +270,12 @@ void EditorWorkspace::bringElementToFront( Widget* elm )
   elm->bringToFront();
 }
 
+void EditorWorkspace::_sendHoveredElementChangedEvent()
+{
+  if (mWidgetHoveredCallback)
+    mWidgetHoveredCallback(mElementUnderMouse);
+}
+
 bool EditorWorkspace::keyboardEvent(int key, int scancode, int action, int modifiers)
 {
   if (isKeyboardActionRelease(action))
@@ -262,12 +284,14 @@ bool EditorWorkspace::keyboardEvent(int key, int scancode, int action, int modif
     switch (keycode)
     {
     case FOURCCS("KDEL"):
-      if (_selectedElement)
+      if (mSelectedElement)
       {
-        _selectedElement->remove();
+        mSelectedElement->remove();
         setSelectedElement(nullptr);
         mElementUnderMouse = nullptr;
-        //_editorWindow->updateTree(this);
+
+        _sendSelectElementChangedEvent();
+        _sendHoveredElementChangedEvent();
 
         //if (_changesManager)
         //  _changesManager->Update();
@@ -275,14 +299,15 @@ bool EditorWorkspace::keyboardEvent(int key, int scancode, int action, int modif
       break;
 
     case FOURCCS("KEYX"):
-      if (isKeyboardModifierCtrl(modifiers) && _selectedElement)
+      if (isKeyboardModifierCtrl(modifiers) && mSelectedElement)
       {
         // cut
-        //copySelectedElementXML();
-        // delete element
-        _selectedElement->remove();
+        mSelectedElement->remove();
         setSelectedElement(nullptr);
         mElementUnderMouse = nullptr;
+
+        _sendSelectElementChangedEvent();
+        _sendHoveredElementChangedEvent();
 
         //if (_changesManager)
         //  _changesManager->Update();
@@ -296,12 +321,12 @@ bool EditorWorkspace::keyboardEvent(int key, int scancode, int action, int modif
 
     case FOURCCS("KEYB"):
       if (isKeyboardModifierCtrl(modifiers))
-        bringElementToFront(_selectedElement);
+        bringElementToFront(mSelectedElement);
       break;
 
     case FOURCCS("KEYC"):
       // copy
-      if (isKeyboardModifierCtrl(modifiers) && _selectedElement)
+      if (isKeyboardModifierCtrl(modifiers) && mSelectedElement)
       {
         //copySelectedElementJson();
       }
@@ -315,7 +340,7 @@ bool EditorWorkspace::keyboardEvent(int key, int scancode, int action, int modif
       break;
 
     case FOURCCS("KEYP"):
-      if (isKeyboardModifierCtrl(modifiers) && _selectedElement)
+      if (isKeyboardModifierCtrl(modifiers) && mSelectedElement)
         setMode(EditMode::SelectNewParent);
       break;
 
@@ -365,6 +390,7 @@ bool EditorWorkspace::mouseMotionEvent(const Vector2i &pp, const Vector2i &rel, 
   if (_currentMode == EditMode::Select || _currentMode == EditMode::SelectNewParent)
   {
     // highlight the element that the mouse is over
+    const auto saveelm = mElementUnderMouse;
     mElementUnderMouse = getEditableElementFromPoint(this, pp);
     if (mElementUnderMouse == this)
       mElementUnderMouse = nullptr;
@@ -373,8 +399,11 @@ bool EditorWorkspace::mouseMotionEvent(const Vector2i &pp, const Vector2i &rel, 
     {
       _mouseOverMode = getModeFromPos(pp);
       if (_mouseOverMode > EditMode::Move)
-        mElementUnderMouse = _selectedElement;
+        mElementUnderMouse = mSelectedElement;
     }
+
+    if (saveelm != mElementUnderMouse)
+      _sendHoveredElementChangedEvent();
   }
   else if (_currentMode == EditMode::Move)
   {
@@ -408,7 +437,7 @@ bool EditorWorkspace::mouseMotionEvent(const Vector2i &pp, const Vector2i &rel, 
   else if (_currentMode > EditMode::Move)
   {
     // get difference from start position
-    Vector2i offset = getOffsetToChild(_selectedElement, this);
+    Vector2i offset = getOffsetToChild(mSelectedElement, this);
     Vector2i p = pp + (absolutePosition() - offset);
 
     if (_useGrid)
@@ -461,36 +490,41 @@ bool EditorWorkspace::mouseButtonEvent(const Vector2i &pp, int button, bool down
     Vector2i p = pp;
     Widget* newSelection = findWidget(p);
 
-    if (newSelection != this && isMyChildRecursive(newSelection) && _selectedElement != newSelection) // redirect event
+    if (newSelection != this && isMyChildRecursive(newSelection) && mSelectedElement != newSelection) // redirect event
     {
       newSelection->requestFocus();
       setSelectedElement(newSelection);
+      _sendSelectElementChangedEvent();
       return true;
     }
 
     if (_currentMode == EditMode::Select)
     {
-      if (_selectedElement)
+      if (mSelectedElement)
       {
         // start moving or dragging
         _currentMode = getModeFromPos(p);
 
         if (_currentMode == EditMode::Move)
-          _startMovePos = _selectedElement->absolutePosition();
+          _startMovePos = mSelectedElement->absolutePosition();
 
         _dragStart = p;
-        _selectedArea = _selectedElement->absoluteRect();
+        _selectedArea = mSelectedElement->absoluteRect();
       }
 
       if (_currentMode < EditMode::Move)
       {
         // selecting an element...
+        auto saveelm = mElementUnderMouse;
         mElementUnderMouse = getEditableElementFromPoint(this, p);
 
         if (mElementUnderMouse == this)
           mElementUnderMouse = nullptr;
 
         setSelectedElement(mElementUnderMouse);
+
+        if (saveelm != mElementUnderMouse)
+          _sendHoveredElementChangedEvent();
       }
     }
     return true;
@@ -508,19 +542,24 @@ bool EditorWorkspace::mouseButtonEvent(const Vector2i &pp, int button, bool down
   {
     if (_currentMode == EditMode::SelectNewParent)
     {
-      if (_selectedElement)
+      if (mSelectedElement)
       {
+        auto saveelm = mElementUnderMouse;
         mElementUnderMouse = getEditableElementFromPoint(this, pp);
-        if (mElementUnderMouse != _selectedElement)
+        if (mElementUnderMouse != mSelectedElement)
         {
           auto saveNewParent = mElementUnderMouse;
-          auto saveMovedElm = _selectedElement;
+          auto saveMovedElm = mSelectedElement;
 
-          mElementUnderMouse->addChild(_selectedElement);
+          mElementUnderMouse->addChild(mSelectedElement);
           saveMovedElm->setPosition(0, 0);
 
           setSelectedElement( saveMovedElm );
+          _sendSelectElementChangedEvent();
         }
+
+        if (saveelm != mElementUnderMouse)
+          _sendHoveredElementChangedEvent();
 
         //if (_changesManager)
         //  _changesManager->Update();
@@ -529,17 +568,15 @@ bool EditorWorkspace::mouseButtonEvent(const Vector2i &pp, int button, bool down
     }
     else if (_currentMode >= EditMode::Move)
     {
-      Widget *sel = _selectedElement;
-      // unselect
-      setSelectedElement(nullptr);
+      //Widget *sel = mSelectedElement;
+      //setSelectedElement(nullptr);
 
       // move
-      Vector2i p(0, 0);
-      if (sel && sel->parent())
-        p = sel->parent()->absolutePosition();
+      //Vector2i p(0, 0);
+      //if (sel && sel->parent())
+        //p = sel->parent()->absolutePosition();
 
-      // select
-      setSelectedElement(sel);
+      //setSelectedElement(sel);
       _currentMode = EditMode::Select;
 
       //if (_changesManager)
@@ -640,24 +677,51 @@ void EditorWorkspace::draw(NVGcontext* ctx)
     while (cy < height())
     {
       row++;
-      nvgStrokeColor(ctx, (row % 5 == 0) ? nvgRGBA(0xE0, 0xE0, 0xE0, 0x80)
-                                         : nvgRGBA(0xE0, 0xE0, 0xE0, 0x20));
+      if (row % 5 == 0)
+      {
+        nvgStroke(ctx);
+        nvgBeginPath(ctx);
+        nvgStrokeColor(ctx, nvgRGBA(0xE0, 0xE0, 0xE0, 0x20));
+      }
 
       nvgMoveTo(ctx, mPos.x(), mPos.y() + cy);
       nvgLineTo(ctx, mPos.x() + width(), mPos.y() + cy);
+
+      if (row % 5 == 0)
+      {
+        nvgStroke(ctx);
+        nvgBeginPath(ctx);
+      }
+
+      nvgStrokeColor(ctx, nvgRGBA(0xB0, 0xB0, 0xB0, 0x20));
       cy += _gridSize.y();
     }
+    nvgStroke(ctx);
 
     int cx = _gridSize.x();
     int col = 0;
+
+    nvgBeginPath(ctx);
     while (cx < width())
     {
       col++;
-      nvgStrokeColor(ctx, (col % 5 == 0) ? nvgRGBA(0xE0, 0xE0, 0xE0, 0x80)
-                                         : nvgRGBA(0xE0, 0xE0, 0xE0, 0x20));
+      if (col % 5 == 0)
+      {
+        nvgStroke(ctx);
+        nvgBeginPath(ctx);
+        nvgStrokeColor(ctx, nvgRGBA(0xE0, 0xE0, 0xE0, 0x20));
+      }
 
       nvgMoveTo(ctx, mPos.x() + cx, mPos.y());
       nvgLineTo(ctx, mPos.x() + cx, mPos.y() + height());
+
+      if (col % 5 == 0)
+      {
+        nvgStroke(ctx);
+        nvgBeginPath(ctx);
+      }
+
+      nvgStrokeColor(ctx, nvgRGBA(0xB0, 0xB0, 0xB0, 0x20));
       cx += _gridSize.x();
     }
     nvgStroke(ctx);
@@ -674,6 +738,9 @@ void EditorWorkspace::draw(NVGcontext* ctx)
 void EditorWorkspace::addChild(int index, Widget * widget)
 {
   Widget::addChild(index, widget);
+
+  if (mChildrenChangeCallback)
+    mChildrenChangeCallback();
 }
 
 void EditorWorkspace::_drawWidthRectangle(NVGcontext* ctx, Color& color, int ww, const Vector4i& r)
@@ -703,12 +770,12 @@ void EditorWorkspace::_drawResizePoint(NVGcontext* ctx, const Color& color, cons
 
 void EditorWorkspace::_drawResizePoints(NVGcontext* ctx)
 {
-    if ( _selectedElement )
+    if ( mSelectedElement )
     {
         // draw handles for moving
         EditMode m = _currentMode;
-        Vector2i offset = getOffsetToChild(_selectedElement, this);
-        Vector4i r = moveRect(_selectedElement->rect(), offset);
+        Vector2i offset = getOffsetToChild(mSelectedElement, this);
+        Vector4i r = moveRect(mSelectedElement->rect(), offset);
         if (m < EditMode::Move)
             m = _mouseOverMode;
 
@@ -727,7 +794,8 @@ void EditorWorkspace::_drawResizePoints(NVGcontext* ctx)
         // top left
         Color bg(180,0, 0, 255);
         Color select(180, 255, 0, 255);
-        if (_currentMode == EditMode::Move)
+        bool avoidedElm = nonEditableElms.count((intptr_t)mSelectedElement);
+        if (_currentMode == EditMode::Move || avoidedElm)
           bg = select = Color(64, 64);
 
         bool mySide = (m == EditMode::ResizeTop || m == EditMode::ResizeLeft || m == EditMode::ResizeTopLeft);
@@ -758,39 +826,41 @@ void EditorWorkspace::_drawResizePoints(NVGcontext* ctx)
 
 void EditorWorkspace::_drawSelectedElement(NVGcontext* ctx)
 {
-  Vector2i offset = getOffsetToChild(_selectedElement, this);
+  Vector2i offset = getOffsetToChild(mSelectedElement, this);
   if (mElementUnderMouse &&
-      mElementUnderMouse != _selectedElement &&
+      mElementUnderMouse != mSelectedElement &&
       mElementUnderMouse != parent() )
   {
-    Color color(100,0,0,255);
+    bool underMouseNotEditable = nonEditableElms.count((intptr_t)mElementUnderMouse);
+    auto color = underMouseNotEditable ? Color(0, 0, 64, 255) : Color(100,0,0,255);
+
     Vector2i umoffset = getOffsetToChild(mElementUnderMouse, this);
     _drawWidthRectangle(ctx, color, 2, moveRect(mElementUnderMouse->rect(), umoffset));
   }
 
-  if (_selectedElement)
-  {
-    if (_currentMode == EditMode::Select)
-    {
-      Color color(100, 0, 0, 255);
-      _drawWidthRectangle(ctx, color, 2, moveRect(_selectedElement->rect(), offset));
-    }
-    else if (_currentMode == EditMode::SelectNewParent)
-    {
-      float value = std::fmod((float)getTimeFromStart(), 1.0f);
-      Vector4i r = moveRect(_selectedElement->rect(), offset);
-      Color color(0, 0, 255, value > 0.5 ? 32 : 64);
-      nvgBeginPath(ctx);
-      nvgFillColor(ctx, color);
-      nvgRect(ctx, r.x(), r.y(), r.z() - r.x(), r.w() - r.y());
-      nvgFill(ctx);
-    }
-  }
+  if (!mSelectedElement)
+    return;
 
-  if (_currentMode >= EditMode::Move)
+  bool avoidedElm = nonEditableElms.count((intptr_t)mSelectedElement);
+  if (_currentMode == EditMode::Select)
   {
-    Vector4i tr = moveRect(_selectedElement->rect(), offset);;
-    Color color(255,0,0,64);
+    auto color = avoidedElm ? Color(0, 0, 64, 255) : Color(100, 0, 0, 255);
+    _drawWidthRectangle(ctx, color, 2, moveRect(mSelectedElement->rect(), offset));
+  }
+  else if (_currentMode == EditMode::SelectNewParent)
+  {
+    float value = std::fmod((float)getTimeFromStart(), 1.0f);
+    Vector4i r = moveRect(mSelectedElement->rect(), offset);
+    Color color(0, 0, 255, value > 0.5 ? 32 : 64);
+    nvgBeginPath(ctx);
+    nvgFillColor(ctx, color);
+    nvgRect(ctx, r.x(), r.y(), r.z() - r.x(), r.w() - r.y());
+    nvgFill(ctx);
+  }
+  else if (_currentMode >= EditMode::Move)
+  {
+    Vector4i tr = moveRect(mSelectedElement->rect(), offset);;
+    Color color(255, 0, 0, 64);
     nvgBeginPath(ctx);
     nvgFillColor(ctx, color);
     nvgRect(ctx, tr.x(), tr.y(), tr.z() - tr.x(), tr.w() - tr.y());
@@ -879,10 +949,19 @@ void EditorWorkspace::setFactoryView( FactoryView* wnd )
   _factoryView = wnd;
 }
 
+void EditorWorkspace::_sendSelectElementChangedEvent()
+{
+  for (auto& func : mSelectedCallbacks)
+    if (func) func(mSelectedElement);
+}
+
 void EditorWorkspace::reset()
 {
   setSelectedElement(nullptr);
   mElementUnderMouse = nullptr;
+
+  _sendSelectElementChangedEvent();
+  _sendHoveredElementChangedEvent();
 
   while ( !children().empty() )
     removeChild( children().front() );
@@ -891,18 +970,24 @@ void EditorWorkspace::reset()
 void EditorWorkspace::cutSelectedElement()
 {
   copySelectedElementToJson();
-  removeElement( _selectedElement );
+  removeElement(mSelectedElement);
 }
 
 void EditorWorkspace::removeElement( Widget* elm )
 {
   Widget* saveElm = elm;
 
-  if (elm == _selectedElement)
+  if (elm == mSelectedElement)
+  {
     setSelectedElement(nullptr);
+    _sendSelectElementChangedEvent();
+  }
 
   if (elm == mElementUnderMouse)
+  {
     mElementUnderMouse = nullptr;
+    _sendHoveredElementChangedEvent();
+  }
 
   saveElm->remove();
 }
@@ -949,11 +1034,17 @@ void EditorWorkspace::update()
 
 void EditorWorkspace::removeChild(const Widget* child )
 {
-  if (child == _selectedElement)
-    setSelectedElement( nullptr );
+  if (child == mSelectedElement)
+  {
+    setSelectedElement(nullptr);
+    _sendSelectElementChangedEvent();
+  }
 
   if (child == mElementUnderMouse)
+  {
     mElementUnderMouse = nullptr;
+    _sendHoveredElementChangedEvent();
+  }
 
   Widget::removeChild( child );
 }

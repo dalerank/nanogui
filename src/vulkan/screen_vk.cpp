@@ -1,7 +1,8 @@
 /*
-    src/screen.cpp -- Top-level widget and interface between NanoGUI and GLFW
+    src/screen_vk.cpp -- Top-level widget and interface between NanoGUI and vulkan
 
-    A significant redesign of this code was contributed by Christian Schueller.
+    A significant redesign this code by dalerank.
+    Based on https://github.com/danilw/nanovg port
 
     NanoGUI was developed by Wenzel Jakob <wenzel.jakob@epfl.ch>.
     The widget drawing code is based on the NanoVG demo application
@@ -15,7 +16,6 @@
 #include <nanogui/theme.h>
 #include <nanogui/window.h>
 #include <nanogui/popup.h>
-#include <nanogui/opengl.h>
 #include <map>
 #include <iostream>
 
@@ -29,21 +29,30 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
-
-#  define GLFW_EXPOSE_NATIVE_WGL
-#  define GLFW_EXPOSE_NATIVE_WIN32
-#  include <GLFW/glfw3native.h>
 #endif
 
-/* Allow enforcing the GL2 implementation of NanoVG */
-#define NANOVG_GL3_IMPLEMENTATION
-#include <nanovg_gl.h>
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
+#include <vulkan/vulkan.h>
+
+#include <nanovg.h>
+#define NANOVG_VULKAN_IMPLEMENTATION
+#include <nanogui/nanovg_vk.h>
+#include "vulkan_util.h"
 
 NAMESPACE_BEGIN(nanogui)
 
-#if defined(NANOGUI_GLAD)
-bool gladInitialized = false;
-#endif
+namespace internal
+{
+  VkInstance instance;
+  VkSurfaceKHR surface;
+  VulkanDevice *device;
+  FrameBuffers fb;
+  VkDebugReportCallbackEXT debug_callback;
+  VkQueue queue;
+  VkCommandBuffer cmd_buffer;
+}
 
 std::map<GLFWwindow *, Screen *> __nanogui_screens;
 void appForEachScreen(std::function<void(Screen*)> f)
@@ -54,80 +63,18 @@ void appForEachScreen(std::function<void(Screen*)> f)
 
 /* Calculate pixel ratio for hi-dpi devices. */
 static float get_pixel_ratio(GLFWwindow *window) {
-#if defined(_WIN32)
-    HWND hWnd = glfwGetWin32Window(window);
-    HMONITOR monitor = nullptr;
-    #if defined(MONITOR_DEFAULTTONEAREST)
-        monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
-    #else
-        static HMONITOR (WINAPI *MonitorFromWindow_)(HWND, DWORD) = nullptr;
-        static bool MonitorFromWindow_tried = false;
-        if (!MonitorFromWindow_tried) {
-            auto user32 = LoadLibrary(TEXT("user32"));
-            if (user32)
-                MonitorFromWindow_ = (decltype(MonitorFromWindow_)) GetProcAddress(user32, "MonitorFromWindow");
-            MonitorFromWindow_tried = true;
-        }
-        if (MonitorFromWindow_)
-            monitor = MonitorFromWindow_(hWnd, 2);
-    #endif  // defined(MONITOR_DEFAULTTONEAREST)
-    /* The following function only exists on Windows 8.1+, but we don't want to make that a dependency */
-    static HRESULT (WINAPI *GetDpiForMonitor_)(HMONITOR, UINT, UINT*, UINT*) = nullptr;
-    static bool GetDpiForMonitor_tried = false;
-
-    if (!GetDpiForMonitor_tried) {
-        auto shcore = LoadLibrary(TEXT("shcore"));
-        if (shcore)
-            GetDpiForMonitor_ = (decltype(GetDpiForMonitor_)) GetProcAddress(shcore, "GetDpiForMonitor");
-        GetDpiForMonitor_tried = true;
-    }
-
-    if (GetDpiForMonitor_ && monitor) {
-        uint32_t dpiX, dpiY;
-        if (GetDpiForMonitor_(monitor, 0 /* effective DPI */, &dpiX, &dpiY) == S_OK)
-            return dpiX / 96.0;
-    }
-    return 1.f;
-#elif defined(__linux__)
-    (void) window;
-
-    float ratio = 1.0f;
-    FILE *fp;
-    /* Try to read the pixel ratio from KDEs config */
-    auto currentDesktop = std::getenv("XDG_CURRENT_DESKTOP");
-    if (currentDesktop && currentDesktop == std::string("KDE")) {
-        fp = popen("kreadconfig5 --group KScreen --key ScaleFactor", "r");
-        if (!fp)
-            return 1;
-
-        if (fscanf(fp, "%f", &ratio) != 1)
-            return 1;
-    } else {
-        /* Try to read the pixel ratio from GTK */
-        fp = popen("gsettings get org.gnome.desktop.interface scaling-factor", "r");
-        if (!fp)
-            return 1;
-
-        int ratioInt = 1;
-        if (fscanf(fp, "uint32 %i", &ratioInt) != 1)
-            return 1;
-        ratio = ratioInt;
-    }
-    if (pclose(fp) != 0)
-        return 1;
-    return ratio >= 1 ? ratio : 1;
-
-#else
-    Vector2i fbSize, size;
-    glfwGetFramebufferSize(window, &fbSize[0], &fbSize[1]);
-    glfwGetWindowSize(window, &size[0], &size[1]);
-    return (float)fbSize[0] / (float)size[0];
-#endif
+   return 1.f;
 }
 
-intptr_t Screen::createStandardCursor(int shape)
-{
-    return (intptr_t)glfwCreateStandardCursor(GLFW_ARROW_CURSOR + shape);
+void Screen::setVisible(bool visible) {
+    if (mVisible != visible) {
+        mVisible = visible;
+
+        if (visible)
+            glfwShowWindow((GLFWwindow*)mHwWindow);
+        else
+            glfwHideWindow((GLFWwindow*)mHwWindow);
+    }
 }
 
 Screen::Screen()
@@ -136,6 +83,115 @@ Screen::Screen()
       mShutdownOnDestruct(false), mFullscreen(false) {
     memset(mCursors, 0, sizeof(GLFWcursor *) * (int) Cursor::CursorCount);
 }
+
+void errorcb(int error, const char *desc) {
+  printf("GLFW error %d: %s\n", error, desc);
+}
+
+void prepareFrame(VkDevice device, VkCommandBuffer cmd_buffer, FrameBuffers *fb) {
+  VkResult res;
+
+  // Get the index of the next available swapchain image:
+  res = vkAcquireNextImageKHR(device, fb->swap_chain, UINT64_MAX,
+    fb->present_complete_semaphore,
+    0,
+    &fb->current_buffer);
+  assert(res == VK_SUCCESS);
+
+  const VkCommandBufferBeginInfo cmd_buf_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+  res = vkBeginCommandBuffer(cmd_buffer, &cmd_buf_info);
+  assert(res == VK_SUCCESS);
+
+  VkClearValue clear_values[2];
+  clear_values[0].color.float32[0] = 0.3f;
+  clear_values[0].color.float32[1] = 0.3f;
+  clear_values[0].color.float32[2] = 0.32f;
+  clear_values[0].color.float32[3] = 1.0f;
+  clear_values[1].depthStencil.depth = 1.0f;
+  clear_values[1].depthStencil.stencil = 0;
+
+  VkRenderPassBeginInfo rp_begin;
+  rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  rp_begin.pNext = NULL;
+  rp_begin.renderPass = fb->render_pass;
+  rp_begin.framebuffer = fb->framebuffers[fb->current_buffer];
+  rp_begin.renderArea.offset.x = 0;
+  rp_begin.renderArea.offset.y = 0;
+  rp_begin.renderArea.extent.width = fb->buffer_size.width;
+  rp_begin.renderArea.extent.height = fb->buffer_size.height;
+  rp_begin.clearValueCount = 2;
+  rp_begin.pClearValues = clear_values;
+
+  vkCmdBeginRenderPass(cmd_buffer, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+
+  VkViewport viewport;
+  viewport.width = fb->buffer_size.width;
+  viewport.height = fb->buffer_size.height;
+  viewport.minDepth = (float)0.0f;
+  viewport.maxDepth = (float)1.0f;
+  viewport.x = rp_begin.renderArea.offset.x;
+  viewport.y = rp_begin.renderArea.offset.y;
+  vkCmdSetViewport(cmd_buffer, 0, 1, &viewport);
+
+  VkRect2D scissor = rp_begin.renderArea;
+  vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
+}
+void submitFrame(VkDevice device, VkQueue queue, VkCommandBuffer cmd_buffer, FrameBuffers *fb) {
+  VkResult res;
+
+  vkCmdEndRenderPass(cmd_buffer);
+
+  vkEndCommandBuffer(cmd_buffer);
+
+  VkPipelineStageFlags pipe_stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+  VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+  submit_info.pNext = NULL;
+  submit_info.waitSemaphoreCount = 1;
+  submit_info.pWaitSemaphores = &fb->present_complete_semaphore;
+  submit_info.pWaitDstStageMask = &pipe_stage_flags;
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &cmd_buffer;
+  submit_info.signalSemaphoreCount = 1;
+  submit_info.pSignalSemaphores = &fb->render_complete_semaphore;
+
+  /* Queue the command buffer for execution */
+  res = vkQueueSubmit(queue, 1, &submit_info, 0);
+  assert(res == VK_SUCCESS);
+
+  /* Now present the image in the window */
+
+  VkPresentInfoKHR present = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+  present.pNext = NULL;
+  present.swapchainCount = 1;
+  present.pSwapchains = &fb->swap_chain;
+  present.pImageIndices = &fb->current_buffer;
+  present.waitSemaphoreCount = 1;
+  present.pWaitSemaphores = &fb->render_complete_semaphore;
+
+  res = vkQueuePresentKHR(queue, &present);
+  assert(res == VK_SUCCESS);
+
+  res = vkQueueWaitIdle(queue);
+}
+
+void Screen::setCaption(const std::string &caption) {
+    if (caption != mCaption) {
+        glfwSetWindowTitle((GLFWwindow*)mHwWindow, caption.c_str());
+        mCaption = caption;
+    }
+}
+
+void Screen::setSize(const Vector2i &size) {
+    Widget::setSize(size);
+
+#if defined(_WIN32) || defined(__linux__)
+    glfwSetWindowSize((GLFWwindow*)mHwWindow, size.x() * mPixelRatio, size.y() * mPixelRatio);
+#else
+    glfwSetWindowSize((GLFWwindow*)mHwWindow, size.x(), size.y());
+#endif
+}
+
 
 Screen::Screen(const Vector2i &size, const std::string &caption, bool resizable,
                bool fullscreen, int colorBits, int alphaBits, int depthBits,
@@ -147,55 +203,43 @@ Screen::Screen(const Vector2i &size, const std::string &caption, bool resizable,
 {
     memset(mCursors, 0, sizeof(GLFWcursor *) * (int) Cursor::CursorCount);
 
-    /* Request a forward compatible OpenGL glMajor.glMinor core profile context.
-       Default value is an OpenGL 3.3 core profile context. */
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, glMajor);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, glMinor);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-    glfwWindowHint(GLFW_SAMPLES, nSamples);
-    glfwWindowHint(GLFW_RED_BITS, colorBits);
-    glfwWindowHint(GLFW_GREEN_BITS, colorBits);
-    glfwWindowHint(GLFW_BLUE_BITS, colorBits);
-    glfwWindowHint(GLFW_ALPHA_BITS, alphaBits);
-    glfwWindowHint(GLFW_STENCIL_BITS, stencilBits);
-    glfwWindowHint(GLFW_DEPTH_BITS, depthBits);
-    glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
-    glfwWindowHint(GLFW_RESIZABLE, resizable ? GL_TRUE : GL_FALSE);
+    glfwSetErrorCallback(errorcb);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
     if (fullscreen) {
         GLFWmonitor *monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode *mode = glfwGetVideoMode(monitor);
         mHwWindow = glfwCreateWindow(mode->width, mode->height,
-                                     (caption + " (OpenGL)").c_str(), monitor, nullptr);
+                                     (caption + "(Vulkan)").c_str(), monitor, nullptr);
     } else {
         mHwWindow = glfwCreateWindow(size.x(), size.y(),
-                                     (caption + " (OpenGL)").c_str(), nullptr, nullptr);
+                                     (caption + "(Vulkan)").c_str(), nullptr, nullptr);
     }
 
     if (!mHwWindow)
-        throw std::runtime_error("Could not create an OpenGL " +
-                                 std::to_string(glMajor) + "." +
-                                 std::to_string(glMinor) + " context!");
+        throw std::runtime_error("Could not create Vulkan context");
 
-    glfwMakeContextCurrent((GLFWwindow*)mHwWindow);
-
-#if defined(NANOGUI_GLAD)
-    if (!gladInitialized) {
-        gladInitialized = true;
-        if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress))
-            throw std::runtime_error("Could not initialize GLAD!");
-        glGetError(); // pull and ignore unhandled errors like GL_INVALID_ENUM
-    }
+#ifdef NDEBUG
+  internal::instance = createVkInstance(false);
+#else
+  internal::instance = createVkInstance(true);
+  internal::debug_callback = CreateDebugReport(internal::instance);
 #endif
 
-    glfwGetFramebufferSize((GLFWwindow*)mHwWindow, &mFBSize[0], &mFBSize[1]);
-    glViewport(0, 0, mFBSize[0], mFBSize[1]);
-    glClearColor(mBackground[0], mBackground[1], mBackground[2], mBackground[3]);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    glfwSwapInterval(0);
-    glfwSwapBuffers((GLFWwindow*)mHwWindow);
+  VkResult res = glfwCreateWindowSurface(internal::instance, (GLFWwindow*)mHwWindow, 0, &internal::surface);
+  if (VK_SUCCESS != res) {
+    printf("glfwCreateWindowSurface failed\n");
+    exit(-1);
+  }
+
+  VkPhysicalDevice gpu;
+  uint32_t gpu_count = 1;
+  res = vkEnumeratePhysicalDevices(internal::instance, &gpu_count, &gpu);
+  if (res != VK_SUCCESS && res != VK_INCOMPLETE) {
+    printf("vkEnumeratePhysicalDevices failed %d \n", res);
+    exit(-1);
+  }
+  internal::device = createVulkanDevice(gpu);
 
 #if defined(__APPLE__)
     /* Poll for events once before starting a potentially
@@ -317,7 +361,6 @@ void Screen::initialize(void *window, bool shutdownGLFWOnDestruct) {
     mHwWindow = window;
     mShutdownOnDestruct = shutdownGLFWOnDestruct;
     glfwGetWindowSize((GLFWwindow*)mHwWindow, &mSize[0], &mSize[1]);
-    glfwGetFramebufferSize((GLFWwindow*)mHwWindow, &mFBSize[0], &mFBSize[1]);
 
     mPixelRatio = get_pixel_ratio((GLFWwindow*)window);
 
@@ -326,31 +369,22 @@ void Screen::initialize(void *window, bool shutdownGLFWOnDestruct) {
         glfwSetWindowSize((GLFWwindow*)window, mSize.x() * mPixelRatio, mSize.y() * mPixelRatio);
 #endif
 
-#if defined(NANOGUI_GLAD)
-    if (!gladInitialized) {
-        gladInitialized = true;
-        if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-            throw std::runtime_error("Could not initialize GLAD!");
-        glGetError(); // pull and ignore unhandled errors like GL_INVALID_ENUM
-    }
-#endif
+    vkGetDeviceQueue(internal::device->device, internal::device->graphicsQueueFamilyIndex, 0, &internal::queue);
+    internal::fb = createFrameBuffers(internal::device, internal::surface, internal::queue, mSize.x(), mSize.y(), 0);
 
-    /* Detect framebuffer properties and set up compatible NanoVG context */
-    GLint nStencilBits = 0, nSamples = 0;
-    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER,
-        GL_STENCIL, GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &nStencilBits);
-    glGetIntegerv(GL_SAMPLES, &nSamples);
+    internal::cmd_buffer = createCmdBuffer(internal::device->device, internal::device->commandPool);
+    VKNVGCreateInfo create_info = {0};
+    create_info.device = internal::device->device;
+    create_info.gpu = internal::device->gpu;
+    create_info.renderpass = internal::fb.render_pass;
+    create_info.cmdBuffer = internal::cmd_buffer;
 
     int flags = 0;
-    if (nStencilBits >= 8)
-       flags |= NVG_STENCIL_STROKES;
-    if (nSamples <= 1)
-       flags |= NVG_ANTIALIAS;
 #if !defined(NDEBUG)
     flags |= NVG_DEBUG;
 #endif
 
-    mNVGContext = nvgCreateGL3(flags);
+    mNVGContext = nvgCreateVk(create_info, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
     if (mNVGContext == nullptr)
         throw std::runtime_error("Could not initialize NanoVG!");
 
@@ -359,54 +393,34 @@ void Screen::initialize(void *window, bool shutdownGLFWOnDestruct) {
     mVisible = glfwGetWindowAttrib((GLFWwindow*)window, GLFW_VISIBLE) != 0;
 }
 
-Screen::~Screen() {
+intptr_t Screen::createStandardCursor(int shape)
+{
+    return (intptr_t)glfwCreateStandardCursor(GLFW_ARROW_CURSOR + shape);
+}
+
+Screen::~Screen()
+{
     __nanogui_screens.erase((GLFWwindow*)mHwWindow);
     for (int i=0; i < (int) Cursor::CursorCount; ++i) {
         if (mCursors[i])
             glfwDestroyCursor((GLFWcursor*)mCursors[i]);
     }
+
     if (mNVGContext)
-        nvgDeleteGL3(mNVGContext);
+    {
+        nvgDeleteVk(mNVGContext);
+
+        destroyFrameBuffers(internal::device, &internal::fb);
+        destroyVulkanDevice(internal::device);
+
+#ifndef NDEBUG
+        _vkDestroyDebugReportCallbackEXT(internal::instance, internal::debug_callback, 0);
+#endif
+        vkDestroyInstance(internal::instance, NULL);
+    }
+
     if (mHwWindow && mShutdownOnDestruct)
         glfwDestroyWindow((GLFWwindow*)mHwWindow);
-}
-
-void Screen::setVisible(bool visible) {
-    if (mVisible != visible) {
-        mVisible = visible;
-
-        if (visible)
-            glfwShowWindow((GLFWwindow*)mHwWindow);
-        else
-            glfwHideWindow((GLFWwindow*)mHwWindow);
-    }
-}
-
-void Screen::setCaption(const std::string &caption) {
-    if (caption != mCaption) {
-        glfwSetWindowTitle((GLFWwindow*)mHwWindow, caption.c_str());
-        mCaption = caption;
-    }
-}
-
-void Screen::setSize(const Vector2i &size) {
-    Widget::setSize(size);
-
-#if defined(_WIN32) || defined(__linux__)
-    glfwSetWindowSize((GLFWwindow*)mHwWindow, size.x() * mPixelRatio, size.y() * mPixelRatio);
-#else
-    glfwSetWindowSize((GLFWwindow*)mHwWindow, size.x(), size.y());
-#endif
-}
-
-void Screen::drawAll() {
-    glClearColor(mBackground[0], mBackground[1], mBackground[2], mBackground[3]);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-    drawContents();
-    drawWidgets();
-
-    glfwSwapBuffers((GLFWwindow*)mHwWindow);
 }
 
 void Screen::setClipboardString(const std::string & text)
@@ -422,22 +436,24 @@ std::string Screen::getClipboardString()
 
 void Screen::_drawWidgetsBefore()
 {
-    glfwMakeContextCurrent((GLFWwindow*)mHwWindow);
+    int cwinWidth, cwinHeight;
+    glfwGetWindowSize((GLFWwindow*)mHwWindow, &cwinWidth, &cwinHeight);
+    if (mSize.x() != cwinWidth || mSize.y() != cwinHeight)
+    {
+      mSize = { cwinWidth, cwinHeight };
+      destroyFrameBuffers(internal::device, &internal::fb);
+      internal::fb = createFrameBuffers(internal::device, internal::surface, internal::queue, mSize.x(), mSize.y(), 0);
+    }
+}
 
-    glfwGetFramebufferSize((GLFWwindow*)mHwWindow, &mFBSize[0], &mFBSize[1]);
-    glfwGetWindowSize((GLFWwindow*)mHwWindow, &mSize[0], &mSize[1]);
+void Screen::drawAll()
+{
+    prepareFrame(internal::device->device, internal::cmd_buffer, &internal::fb);
 
-#if defined(_WIN32) || defined(__linux__)
-    mSize = (mSize.cast<float>() / mPixelRatio).cast<int>();
-    mFBSize = (mSize.cast<float>() * mPixelRatio).cast<int>();
-#else
-    /* Recompute pixel ratio on OSX */
-    if (mSize[0])
-        mPixelRatio = (float) mFBSize[0] / (float) mSize[0];
-#endif
+    drawContents();
+    drawWidgets();
 
-    glViewport(0, 0, mFBSize[0], mFBSize[1]);
-    glBindSampler(0, 0);
+    submitFrame(internal::device->device, internal::queue, internal::cmd_buffer, &internal::fb);
 }
 
 void Screen::_internalSetCursor(int cursor)

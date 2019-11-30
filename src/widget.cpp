@@ -95,28 +95,34 @@ void Widget::performLayout(NVGcontext *ctx)
 }
 
 Widget *Widget::findWidget(const Vector2i &p) {
-    for (auto it = mChildren.rbegin(); it != mChildren.rend(); ++it) {
-        Widget *child = *it;
-        if (child->visible() && child->contains(p - mPos))
-        {
-          if (child->prefferContains(p - mPos))
-            return child;
-          return child->findWidget(p - mPos);
-        }
-    }
-    return contains(p) ? this : nullptr;
+  if (mChildren.empty())
+    return nullptr;
+
+  for (int i=mChildren.size()-1; i >= 0; i--) {
+      Widget *child = mChildren[i];
+      if (child->visible() && child->contains(p - mPos))
+      {
+        if (child->prefferContains(p - mPos))
+          return child;
+        return child->findWidget(p - mPos);
+      }
+  }
+  return contains(p) ? this : nullptr;
 }
 
 bool Widget::mouseButtonEvent(const Vector2i &p, int button, bool down, int modifiers) {
-    for (auto it = mChildren.rbegin(); it != mChildren.rend(); ++it) {
-        Widget *child = *it;
-        if (child->visible() && child->contains(p - mPos) &&
-            child->mouseButtonEvent(p - mPos, button, down, modifiers))
-            return true;
-    }
-    if ( isMouseButtonLeft(button) && down && !mFocused)
-        requestFocus();
+  if (mChildren.empty())
     return false;
+
+  for (int i=mChildren.size()-1; i >= 0; i--) {
+      Widget *child = mChildren[i];
+      if (child->visible() && child->contains(p - mPos) &&
+          child->mouseButtonEvent(p - mPos, button, down, modifiers))
+          return true;
+  }
+  if ( isMouseButtonLeft(button) && down && !mFocused)
+      requestFocus();
+  return false;
 }
 
 bool Widget::mouseMotionEvent(const Vector2i &p, const Vector2i &rel, int button, int modifiers) {
@@ -329,6 +335,16 @@ void Widget::draw(NVGcontext *ctx) {
     nvgRestore(ctx);
 }
 
+void Widget::setVisible(bool visible)
+{
+  if (mVisible != visible)
+  {
+    auto scr = screen();
+    if (scr) scr->needPerformLayout(mParent);
+  }
+  mVisible = visible;
+}
+
 void Widget::afterDraw(NVGcontext *ctx) {
   if (mChildren.empty())
     return;
@@ -338,15 +354,15 @@ void Widget::afterDraw(NVGcontext *ctx) {
 }
 
 void Widget::save(Serializer &s) const {
-  s.set("position", mPos); //s.set("$position_type", std::string("vec2")); s.set("$position_name", std::string("Position"));
-    s.set("size", mSize);
-    s.set("fixedSize", mFixedSize);
-    s.set("visible", mVisible);
-    s.set("enabled", mEnabled);
-    s.set("focused", mFocused);
-    s.set("tooltip", mTooltip);
-    s.set("fontSize", mFontSize);
-    s.set("cursor", (int) mCursor);
+  s.set("position", mPos);
+  s.set("size", mSize);
+  s.set("fixedSize", mFixedSize);
+  s.set("visible", mVisible);
+  s.set("enabled", mEnabled);
+  s.set("focused", mFocused);
+  s.set("tooltip", mTooltip);
+  s.set("fontSize", mFontSize);
+  s.set("cursor", (int) mCursor);
 }
 
 void Widget::save(Json::value &save) const {

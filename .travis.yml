@@ -9,6 +9,7 @@ branches:
 
 matrix:
   include:
+    # build opengl render
     - os: windows
       python: "3.7"
       before_install:
@@ -18,8 +19,24 @@ matrix:
         - mkdir -p build
         - cd build
         - cmake --version 
-        - cmake -G "Visual Studio 15 2017 Win64" -DNANOGUI_PYTHON_VERSION=3.8 -DPYTHON_INCLUDE_DIRS:PATH="C:/Python38/include" -DPYTHON_LIBRARY:FILEPATH="C:/Python38/libs/python38.lib" ..
+        - cmake -G "Visual Studio 15 2017 Win64" -DNANOGUI_GLFW_BACKEND=ON -DNANOGUI_PYTHON_VERSION=3.8 -DPYTHON_INCLUDE_DIRS:PATH="C:/Python38/include" -DPYTHON_LIBRARY:FILEPATH="C:/Python38/libs/python38.lib" ..
         - cmake --build .
+    # build vulkan render    
+    - os: windows
+      python: "3.7"
+      before_install:
+        - choco install python3
+        - export PATH="/c/Python38:/c/Python38/Scripts:$PATH"
+        - curl -L --progress-bar --show-error --output VulkanSDK.exe https://vulkan.lunarg.com/sdk/download/1.1.126.0/windows/VulkanSDK-1.1.126.0-Installer.exe?Human=true
+        - start VulkanSDK.exe /S
+        - export VULKAN_SDK="/c/VulkanSDK/1.1.126.0"
+      script:     
+        - mkdir -p build
+        - cd build
+        - cmake --version 
+        - cmake -G "Visual Studio 15 2017 Win64" -DNANOGUI_VULKAN_BACKEND=ON -DNANOGUI_PYTHON_VERSION=3.8 -DPYTHON_INCLUDE_DIRS:PATH="C:/Python38/include" -DPYTHON_LIBRARY:FILEPATH="C:/Python38/libs/python38.lib" ..
+        - cmake --build .  
+    # build opengl render linux   
     - os: linux
       compiler: gcc-4.9
       addons:
@@ -43,13 +60,16 @@ matrix:
             - cmake
       script:
         - cmake --version
-        - cmake -DNANOGUI_USE_GLAD=ON -DNANOGUI_PYTHON_VERSION=3.5 -DPYTHON_INCLUDE_DIRS:PATH=/usr/include/python3.5m -DPYTHON_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/libpython3.5m.so -DCMAKE_CXX_COMPILER=g++-4.8 -DCMAKE_C_COMPILER=gcc-4.8
+        - cmake -DNANOGUI_GLFW_BACKEND=ON -DNANOGUI_USE_GLAD=ON -DNANOGUI_PYTHON_VERSION=3.5 -DPYTHON_INCLUDE_DIRS:PATH=/usr/include/python3.5m -DPYTHON_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/libpython3.5m.so -DCMAKE_CXX_COMPILER=g++-4.8 -DCMAKE_C_COMPILER=gcc-4.8
         - make -j 2
+    # build opengl render osx       
     - os: osx
       compiler: clang
+      before_install:
+        - python3 --version
       script:
         - cmake --version
-        - cmake -DNANOGUI_PYTHON_VERSION=2.7
+        - cmake -DNANOGUI_GLFW_BACKEND=ON -DNANOGUI_PYTHON_VERSION=3.5
         - make -j 2
     - os: linux
       language: docs
