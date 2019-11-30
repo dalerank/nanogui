@@ -729,7 +729,7 @@ void makeCustomThemeWindow(Screen* screen, const std::string &title)
 {
   auto& cwindow = screen->window(title);
   cwindow.setPosition(1100, 300);
-//  cwindow.withTheme<WhiteTheme>(screen->nvgContext());
+  cwindow.withTheme<WhiteTheme>(screen->nvgContext());
   cwindow.withLayout<GroupLayout>(15, 6, 6);
 
   /* test text box fonts */
